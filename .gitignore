@@ -1,0 +1,26 @@
+# Android ignored files
+.gradle/
+.kotlin/
+build/
+app/build/
+local.properties
+.idea/
+*.iml
+.DS_Store
+
+# Python ignored files
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+ENV/
+env/
+.pytest_cache/
+
+# Explicitly track the built release APK
+!music-player-release.apk
+music-player-debug.apk
+app-debug.apk
+app-release.apk
+app-release-unsigned.apk
