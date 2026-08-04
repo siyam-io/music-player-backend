@@ -26,37 +26,67 @@ class DownloaderHandler(http.server.BaseHTTPRequestHandler):
             print(f"[Server] Resolving stream for video ID: {video_id}...", flush=True)
             video_url = f"https://www.youtube.com/watch?v={video_id}"
             
-            try:
-                # Use python -m yt_dlp directly to ensure it uses the installed package
-                cmd = [
-                    sys.executable, "-m", "yt_dlp",
-                    "-g",
-                    "-f", "bestaudio",
-                    video_url
-                ]
-                # Run the command and capture the output url
-                result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-                stream_url = result.stdout.strip()
-                
-                if stream_url:
-                    print(f"[Server] Successfully resolved stream URL!", flush=True)
-                    response_data = {"url": stream_url}
-                    self.send_response(200)
-                    self.send_header("Content-Type", "application/json")
-                    self.send_header("Access-Control-Allow-Origin", "*")
-                    self.end_headers()
-                    self.wfile.write(json.dumps(response_data).encode('utf-8'))
-                    return
-                else:
-                    raise Exception("Empty URL returned by yt-dlp")
-            except Exception as e:
-                print(f"[Server] Error resolving stream: {e}", flush=True)
-                self.send_response(500)
-                self.send_header("Content-Type", "application/json")
-                self.send_header("Access-Control-Allow-Origin", "*")
-                self.end_headers()
-                self.wfile.write(json.dumps({"error": str(e)}).encode('utf-8'))
-                return
+            # Try multiple format options as fallback
+            format_options = [
+                "bestaudio[ext=m4a]/bestaudio/best",
+                "bestaudio",
+                "best",
+            ]
+            
+            last_error = None
+            for fmt in format_options:
+                try:
+                    cmd = [
+                        sys.executable, "-m", "yt_dlp",
+                        "-g",
+                        "-f", fmt,
+                        "--no-check-certificates",
+                        "--no-warnings",
+                        "--extractor-retries", "3",
+                        video_url
+                    ]
+                    print(f"[Server] Trying format: {fmt}", flush=True)
+                    result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+                    
+                    if result.returncode != 0:
+                        stderr_msg = result.stderr.strip()
+                        print(f"[Server] yt-dlp failed with format '{fmt}': {stderr_msg}", flush=True)
+                        last_error = stderr_msg or f"Exit code {result.returncode}"
+                        continue
+                    
+                    stream_url = result.stdout.strip()
+                    # If multiple URLs returned (video+audio), take the last one (audio)
+                    if '\n' in stream_url:
+                        stream_url = stream_url.split('\n')[-1].strip()
+                    
+                    if stream_url:
+                        print(f"[Server] Successfully resolved stream URL with format '{fmt}'!", flush=True)
+                        response_data = {"url": stream_url}
+                        self.send_response(200)
+                        self.send_header("Content-Type", "application/json")
+                        self.send_header("Access-Control-Allow-Origin", "*")
+                        self.end_headers()
+                        self.wfile.write(json.dumps(response_data).encode('utf-8'))
+                        return
+                    else:
+                        last_error = "Empty URL returned by yt-dlp"
+                        print(f"[Server] Empty URL with format '{fmt}'", flush=True)
+                except subprocess.TimeoutExpired:
+                    last_error = "yt-dlp timed out"
+                    print(f"[Server] Timeout with format '{fmt}'", flush=True)
+                except Exception as e:
+                    last_error = str(e)
+                    print(f"[Server] Exception with format '{fmt}': {e}", flush=True)
+            
+            # All formats failed
+            error_msg = f"All format attempts failed. Last error: {last_error}"
+            print(f"[Server] {error_msg}", flush=True)
+            self.send_response(500)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps({"error": error_msg}).encode('utf-8'))
+            return
         
         elif parsed_url.path == '/search':
             query = urllib.parse.parse_qs(parsed_url.query)
