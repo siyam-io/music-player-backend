@@ -4,7 +4,9 @@ import urllib.parse
 import sys
 import subprocess
 
-PORT = 5082
+import os
+
+PORT = int(os.environ.get("PORT", 5082))
 
 class DownloaderHandler(http.server.BaseHTTPRequestHandler):
     def log_message(self, format, *args):
