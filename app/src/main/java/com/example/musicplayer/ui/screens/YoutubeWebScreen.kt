@@ -41,9 +41,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import com.example.musicplayer.data.DownloadOption
 import com.example.musicplayer.data.Song
 import com.example.musicplayer.data.YoutubeDownloader
 import com.example.musicplayer.data.YoutubeVideo
+import com.example.musicplayer.ui.components.DownloadOptionsBottomSheet
 import com.example.musicplayer.viewmodel.MusicViewModel
 import java.io.ByteArrayInputStream
 
@@ -73,12 +75,15 @@ fun YoutubeWebScreen(
     viewModel: MusicViewModel
 ) {
     val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
     var webViewInstance by remember { mutableStateOf<WebView?>(null) }
     var currentUrl by remember { mutableStateOf("https://m.youtube.com") }
     var canGoBack by remember { mutableStateOf(false) }
     var isLoading by remember { mutableStateOf(false) }
     var isResolvingAudio by remember { mutableStateOf(false) }
-    var isDownloading by remember { mutableStateOf(false) }
+    var isFetchingDownloadOptions by remember { mutableStateOf(false) }
+    var showDownloadSheet by remember { mutableStateOf(false) }
+    var availableDownloadOptions by remember { mutableStateOf<List<DownloadOption>>(emptyList()) }
     var customView by remember { mutableStateOf<View?>(null) }
 
     val currentVideoId = remember(currentUrl) {
@@ -283,26 +288,16 @@ fun YoutubeWebScreen(
                     }
                 }
 
-                // Download MP3 Button
+                // Superfast Download Options Button (VidMate Style)
                 FloatingActionButton(
                     onClick = {
-                        if (!isDownloading) {
-                            isDownloading = true
-                            Toast.makeText(context, "Preparing MP3 download...", Toast.LENGTH_SHORT).show()
-                            val ytVideo = YoutubeVideo(
-                                id = currentVideoId,
-                                title = "YouTube Track $currentVideoId",
-                                artist = "YouTube",
-                                durationText = "00:00",
-                                thumbnail = "https://i.ytimg.com/vi/$currentVideoId/hqdefault.jpg"
-                            )
-                            YoutubeDownloader.startAudioDownload(context, ytVideo) { success ->
-                                isDownloading = false
-                                if (success) {
-                                    Toast.makeText(context, "MP3 Download Started! Check Notifications", Toast.LENGTH_LONG).show()
-                                } else {
-                                    Toast.makeText(context, "Download failed", Toast.LENGTH_SHORT).show()
-                                }
+                        if (!isFetchingDownloadOptions) {
+                            isFetchingDownloadOptions = true
+                            showDownloadSheet = true
+                            availableDownloadOptions = emptyList()
+                            YoutubeDownloader.resolveAllDownloadOptions(currentVideoId) { options ->
+                                isFetchingDownloadOptions = false
+                                availableDownloadOptions = options
                             }
                         }
                     },
@@ -311,10 +306,10 @@ fun YoutubeWebScreen(
                     shape = CircleShape,
                     modifier = Modifier.size(52.dp)
                 ) {
-                    if (isDownloading) {
+                    if (isFetchingDownloadOptions) {
                         CircularProgressIndicator(modifier = Modifier.size(22.dp), color = Color.Black, strokeWidth = 2.dp)
                     } else {
-                        Icon(Icons.Default.Download, contentDescription = "Download MP3")
+                        Icon(Icons.Default.Download, contentDescription = "Download Options (VidMate Style)")
                     }
                 }
             }
@@ -337,6 +332,17 @@ fun YoutubeWebScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .background(Color.Black)
+            )
+        }
+
+        // Download Options Bottom Sheet (Audio & Video Formats)
+        if (showDownloadSheet && currentVideoId != null) {
+            DownloadOptionsBottomSheet(
+                videoTitle = "YouTube Track ($currentVideoId)",
+                options = availableDownloadOptions,
+                isLoading = isFetchingDownloadOptions,
+                onDismiss = { showDownloadSheet = false },
+                coroutineScope = coroutineScope
             )
         }
     }

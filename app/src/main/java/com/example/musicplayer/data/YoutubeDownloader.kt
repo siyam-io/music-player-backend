@@ -1,6 +1,5 @@
 package com.example.musicplayer.data
 
-import android.app.DownloadManager
 import android.content.Context
 import android.net.Uri
 import android.os.Environment
@@ -12,6 +11,7 @@ import java.io.InputStreamReader
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
+import kotlinx.coroutines.launch
 
 private const val TAG = "YoutubeDownloader"
 
@@ -21,6 +21,14 @@ data class YoutubeVideo(
     val artist: String,
     val durationText: String,
     val thumbnail: String
+)
+
+data class DownloadOption(
+    val title: String,
+    val formatType: String, // "AUDIO" or "VIDEO"
+    val qualityLabel: String,
+    val extension: String,
+    val url: String
 )
 
 object YoutubeDownloader {
@@ -300,6 +308,135 @@ object YoutubeDownloader {
         }
     }
 
+    fun resolveAllDownloadOptions(videoId: String, callback: (List<DownloadOption>) -> Unit) {
+        Thread {
+            val options = mutableListOf<DownloadOption>()
+            try {
+                val watchUrl = "https://www.youtube.com/watch?v=$videoId"
+                val watchConn = URL(watchUrl).openConnection() as HttpURLConnection
+                watchConn.requestMethod = "GET"
+                watchConn.connectTimeout = 8000
+                watchConn.readTimeout = 8000
+                watchConn.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+
+                if (watchConn.responseCode == 200) {
+                    val cookies = watchConn.headerFields["Set-Cookie"]
+                    val html = watchConn.inputStream.bufferedReader().use { it.readText() }
+
+                    val visitorMatch = Regex(""""VISITOR_DATA":"([^"]+)"""").find(html)
+                    val apiKeyMatch = Regex(""""INNERTUBE_API_KEY":"([^"]+)"""").find(html)
+
+                    val visitorData = visitorMatch?.groupValues?.get(1)
+                    val apiKey = apiKeyMatch?.groupValues?.get(1)
+
+                    if (visitorData != null && apiKey != null) {
+                        val playerUrl = "https://www.youtube.com/youtubei/v1/player?key=$apiKey"
+                        val conn = URL(playerUrl).openConnection() as HttpURLConnection
+                        conn.requestMethod = "POST"
+                        conn.doOutput = true
+                        conn.connectTimeout = 8000
+                        conn.readTimeout = 8000
+                        conn.setRequestProperty("Content-Type", "application/json")
+                        conn.setRequestProperty("User-Agent", "Dalvik/2.1.0 (Linux; U; Android 11)")
+                        conn.setRequestProperty("X-Goog-Visitor-Id", visitorData)
+
+                        if (!cookies.isNullOrEmpty()) {
+                            val cookieHeader = cookies.joinToString("; ") { it.split(";")[0] }
+                            conn.setRequestProperty("Cookie", cookieHeader)
+                        }
+
+                        val payload = JSONObject().apply {
+                            put("videoId", videoId)
+                            put("context", JSONObject().apply {
+                                put("client", JSONObject().apply {
+                                    put("clientName", "ANDROID_VR")
+                                    put("clientVersion", "1.56.21")
+                                    put("androidSdkVersion", 30)
+                                    put("visitorData", visitorData)
+                                })
+                            })
+                        }
+
+                        conn.outputStream.write(payload.toString().toByteArray(Charsets.UTF_8))
+
+                        if (conn.responseCode == 200) {
+                            val responseStr = conn.inputStream.bufferedReader().use { it.readText() }
+                            val json = JSONObject(responseStr)
+                            val streamingData = json.optJSONObject("streamingData")
+
+                            // 1. Muxed Formats (Video + Audio MP4)
+                            val formats = streamingData?.optJSONArray("formats")
+                            if (formats != null) {
+                                for (i in 0 until formats.length()) {
+                                    val fmt = formats.getJSONObject(i)
+                                    var url = fmt.optString("url", "")
+                                    val qualityLabel = fmt.optString("qualityLabel", "HD")
+                                    if (url.isNotBlank()) {
+                                        if (url.startsWith("http://")) url = url.replaceFirst("http://", "https://")
+                                        options.add(
+                                            DownloadOption(
+                                                title = "MP4 Video ($qualityLabel)",
+                                                formatType = "VIDEO",
+                                                qualityLabel = qualityLabel,
+                                                extension = "mp4",
+                                                url = url
+                                            )
+                                        )
+                                    }
+                                }
+                            }
+
+                            // 2. Adaptive Formats (Audio MP3/M4A & High Res Video MP4)
+                            val adaptive = streamingData?.optJSONArray("adaptiveFormats")
+                            if (adaptive != null) {
+                                for (i in 0 until adaptive.length()) {
+                                    val fmt = adaptive.getJSONObject(i)
+                                    val mime = fmt.optString("mimeType", "")
+                                    var url = fmt.optString("url", "")
+                                    val bitrate = fmt.optInt("bitrate", 0)
+                                    val bitrateKbps = bitrate / 1000
+
+                                    if (url.isNotBlank()) {
+                                        if (url.startsWith("http://")) url = url.replaceFirst("http://", "https://")
+
+                                        if (mime.startsWith("audio/")) {
+                                            val label = if (bitrateKbps >= 140) "320kbps High Quality Audio" else "${bitrateKbps}kbps Audio"
+                                            options.add(
+                                                DownloadOption(
+                                                    title = "MP3 Audio ($label)",
+                                                    formatType = "AUDIO",
+                                                    qualityLabel = "${bitrateKbps}kbps",
+                                                    extension = "mp3",
+                                                    url = url
+                                                )
+                                            )
+                                        } else if (mime.startsWith("video/mp4")) {
+                                            val qual = fmt.optString("qualityLabel", "")
+                                            if (qual.isNotBlank() && options.none { it.qualityLabel == qual && it.extension == "mp4" }) {
+                                                options.add(
+                                                    DownloadOption(
+                                                        title = "MP4 Video ($qual)",
+                                                        formatType = "VIDEO",
+                                                        qualityLabel = qual,
+                                                        extension = "mp4",
+                                                        url = url
+                                                    )
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "resolveAllDownloadOptions failed for videoId=$videoId", e)
+            }
+            callback(options.distinctBy { "${it.formatType}_${it.qualityLabel}" })
+        }.start()
+    }
+
     private fun tryResolveFromPiped(videoId: String): String? {
         for (instance in pipedInstances) {
             try {
@@ -395,24 +532,16 @@ object YoutubeDownloader {
             }
             
             try {
-                val request = DownloadManager.Request(Uri.parse(downloadLink)).apply {
-                    setTitle(video.title)
-                    setDescription("Downloading audio from YouTube")
-                    setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-                    setAllowedOverMetered(true)
-                    setAllowedOverRoaming(true)
-                    
-                    val cleanTitle = video.title.replace(Regex("[\\\\/:*?\"<>|]"), "_")
-                    val cleanArtist = video.artist.replace(Regex("[\\\\/:*?\"<>|]"), "_")
-                    setDestinationInExternalPublicDir(
-                        Environment.DIRECTORY_MUSIC,
-                        "$cleanTitle - $cleanArtist.mp3"
-                    )
+                kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                    ParallelDownloader.downloadFile(
+                        context = context,
+                        urlStr = downloadLink,
+                        title = "${video.title} - ${video.artist}",
+                        extension = "mp3"
+                    ) { success, _ ->
+                        onLinkGenerated(success)
+                    }
                 }
-                
-                val downloadManager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-                downloadManager.enqueue(request)
-                onLinkGenerated(true)
             } catch (e: Exception) {
                 e.printStackTrace()
                 onLinkGenerated(false)

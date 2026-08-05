@@ -183,6 +183,7 @@ fun LibraryScreen(
 
                 HorizontalPager(
                     state = pagerState,
+                    userScrollEnabled = selectedTab != 3 && selectedTab != 4,
                     modifier = Modifier.fillMaxSize()
                 ) { page ->
                     when (page) {

@@ -127,6 +127,11 @@ fun YoutubeScreen(
     var searchResults by remember { mutableStateOf<List<YoutubeVideo>>(emptyList()) }
     var isLoading by remember { mutableStateOf(false) }
 
+    var showDownloadSheet by remember { mutableStateOf(false) }
+    var selectedVideoForDownload by remember { mutableStateOf<YoutubeVideo?>(null) }
+    var availableDownloadOptions by remember { mutableStateOf<List<com.example.musicplayer.data.DownloadOption>>(emptyList()) }
+    var isFetchingOptions by remember { mutableStateOf(false) }
+
     // Search history and recent plays states
     var searchHistory by remember { mutableStateOf(getSearchHistory(context)) }
     var recentPlays by remember { mutableStateOf(getRecentPlays(context)) }
