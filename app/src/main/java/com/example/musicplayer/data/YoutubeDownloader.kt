@@ -107,19 +107,18 @@ object YoutubeDownloader {
         "https://inv.nadeko.net",
         "https://invidious.nerdvpn.de",
         "https://yewtu.be",
-        "https://invidious.flokinet.to",
-        "https://invidious.privacydev.net",
-        "https://iv.melmac.space"
+        "https://invidious.flokinet.to"
     )
 
     private val pipedInstances = listOf(
         "https://pipedapi.kavin.rocks",
-        "https://pipedapi.adminforge.de",
-        "https://api.piped.privacydev.net"
+        "https://pipedapi.mha.fi",
+        "https://pipedapi.tokhmi.xyz",
+        "https://pipedapi.moomoo.me"
     )
 
     fun searchVideos(query: String): List<YoutubeVideo> {
-        // Attempt 1: 100% Native Client-Side YouTube Web Search Scraper (0.4s Sub-second search!)
+        // Attempt 1: 100% Native Client-Side YouTube Web Search Scraper (Fastest, < 0.4s!)
         val directWebResults = searchVideosDirectWeb(query)
         if (directWebResults.isNotEmpty()) {
             Log.d(TAG, "Direct web search SUCCESS for: $query (count=${directWebResults.size})")
@@ -153,53 +152,58 @@ object YoutubeDownloader {
 
             if (conn.responseCode == 200) {
                 val html = conn.inputStream.bufferedReader().use { it.readText() }
-                val match = Regex("""var ytInitialData = (\{.*?});</script>""").find(html)
-                if (match != null) {
-                    val jsonStr = match.groupValues[1]
-                    val json = JSONObject(jsonStr)
-                    val contents = json.optJSONObject("contents")
-                        ?.optJSONObject("twoColumnSearchResultsRenderer")
-                        ?.optJSONObject("primaryContents")
-                        ?.optJSONObject("sectionListRenderer")
-                        ?.optJSONArray("contents")
+                val marker = "var ytInitialData = "
+                val startIndex = html.indexOf(marker)
+                if (startIndex != -1) {
+                    val jsonStart = startIndex + marker.length
+                    val endIndex = html.indexOf(";</script>", jsonStart)
+                    if (endIndex != -1) {
+                        val jsonStr = html.substring(jsonStart, endIndex)
+                        val json = JSONObject(jsonStr)
+                        val contents = json.optJSONObject("contents")
+                            ?.optJSONObject("twoColumnSearchResultsRenderer")
+                            ?.optJSONObject("primaryContents")
+                            ?.optJSONObject("sectionListRenderer")
+                            ?.optJSONArray("contents")
 
-                    if (contents != null && contents.length() > 0) {
-                        for (i in 0 until contents.length()) {
-                            val section = contents.getJSONObject(i)
-                            val itemSection = section.optJSONObject("itemSectionRenderer")
-                            val items = itemSection?.optJSONArray("contents") ?: continue
+                        if (contents != null && contents.length() > 0) {
+                            for (i in 0 until contents.length()) {
+                                val section = contents.getJSONObject(i)
+                                val itemSection = section.optJSONObject("itemSectionRenderer")
+                                val items = itemSection?.optJSONArray("contents") ?: continue
 
-                            for (j in 0 until items.length()) {
-                                val item = items.getJSONObject(j)
-                                val vr = item.optJSONObject("videoRenderer") ?: continue
+                                for (j in 0 until items.length()) {
+                                    val item = items.getJSONObject(j)
+                                    val vr = item.optJSONObject("videoRenderer") ?: continue
 
-                                val videoId = vr.optString("videoId", "")
-                                if (videoId.isBlank()) continue
+                                    val videoId = vr.optString("videoId", "")
+                                    if (videoId.isBlank()) continue
 
-                                val title = vr.optJSONObject("title")
-                                    ?.optJSONArray("runs")
-                                    ?.optJSONObject(0)
-                                    ?.optString("text", "Unknown Title") ?: "Unknown Title"
+                                    val title = vr.optJSONObject("title")
+                                        ?.optJSONArray("runs")
+                                        ?.optJSONObject(0)
+                                        ?.optString("text", "Unknown Title") ?: "Unknown Title"
 
-                                val artist = vr.optJSONObject("ownerText")
-                                    ?.optJSONArray("runs")
-                                    ?.optJSONObject(0)
-                                    ?.optString("text", "Unknown Artist") ?: "Unknown Artist"
+                                    val artist = vr.optJSONObject("ownerText")
+                                        ?.optJSONArray("runs")
+                                        ?.optJSONObject(0)
+                                        ?.optString("text", "Unknown Artist") ?: "Unknown Artist"
 
-                                val durationText = vr.optJSONObject("lengthText")
-                                    ?.optString("simpleText", "00:00") ?: "00:00"
+                                    val durationText = vr.optJSONObject("lengthText")
+                                        ?.optString("simpleText", "00:00") ?: "00:00"
 
-                                val thumbnail = "https://i.ytimg.com/vi/$videoId/hqdefault.jpg"
+                                    val thumbnail = "https://i.ytimg.com/vi/$videoId/hqdefault.jpg"
 
-                                results.add(
-                                    YoutubeVideo(
-                                        id = videoId,
-                                        title = title,
-                                        artist = artist,
-                                        durationText = durationText,
-                                        thumbnail = thumbnail
+                                    results.add(
+                                        YoutubeVideo(
+                                            id = videoId,
+                                            title = title,
+                                            artist = artist,
+                                            durationText = durationText,
+                                            thumbnail = thumbnail
+                                        )
                                     )
-                                )
+                                }
                             }
                         }
                     }
@@ -308,19 +312,19 @@ object YoutubeDownloader {
 
     fun resolveAudioUrl(videoId: String, callback: (String?) -> Unit) {
         Thread {
-            // Attempt 1: Direct Client-Side Extraction via NewPipeExtractor
-            Log.d(TAG, "Trying direct client-side NewPipeExtractor for videoId=$videoId")
-            val newPipeResult = resolveAudioUrlNewPipe(videoId)
-            if (newPipeResult != null) {
-                callback(newPipeResult)
-                return@Thread
-            }
-
-            // Attempt 2: Direct Web Scraper of ytInitialPlayerResponse
+            // Attempt 1: Direct Web Scraper of ytInitialPlayerResponse
             Log.d(TAG, "Trying direct web player response for videoId=$videoId")
             val directWebResult = resolveAudioUrlDirectWeb(videoId)
             if (directWebResult != null) {
                 callback(directWebResult)
+                return@Thread
+            }
+
+            // Attempt 2: Direct Client-Side Extraction via NewPipeExtractor
+            Log.d(TAG, "Trying direct client-side NewPipeExtractor for videoId=$videoId")
+            val newPipeResult = resolveAudioUrlNewPipe(videoId)
+            if (newPipeResult != null) {
+                callback(newPipeResult)
                 return@Thread
             }
 
@@ -345,30 +349,6 @@ object YoutubeDownloader {
         }.start()
     }
 
-    private fun resolveAudioUrlNewPipe(videoId: String): String? {
-        ensureInitialized()
-        return try {
-            val url = "https://www.youtube.com/watch?v=$videoId"
-            val info = StreamInfo.getInfo(ServiceList.YouTube, url)
-            val audioStreams = info.audioStreams
-            if (!audioStreams.isNullOrEmpty()) {
-                val bestAudio = audioStreams.maxByOrNull { it.averageBitrate } ?: audioStreams[0]
-                var streamUrl: String? = bestAudio.url
-                if (!streamUrl.isNullOrBlank()) {
-                    if (streamUrl.startsWith("http://")) {
-                        streamUrl = streamUrl.replaceFirst(Regex("^http://"), "https://")
-                    }
-                    Log.d(TAG, "NewPipeExtractor SUCCESS for videoId=$videoId, bitrate=${bestAudio.averageBitrate}")
-                    return streamUrl
-                }
-            }
-            null
-        } catch (e: Exception) {
-            Log.e(TAG, "NewPipeExtractor resolve error for videoId=$videoId", e)
-            null
-        }
-    }
-
     private fun resolveAudioUrlDirectWeb(videoId: String): String? {
         return try {
             val url = "https://www.youtube.com/watch?v=$videoId"
@@ -381,24 +361,37 @@ object YoutubeDownloader {
 
             if (conn.responseCode == 200) {
                 val html = conn.inputStream.bufferedReader().use { it.readText() }
-                val match = Regex("""var ytInitialPlayerResponse = (\{.*?});</script>""").find(html)
-                if (match != null) {
-                    val jsonStr = match.groupValues[1]
-                    val json = JSONObject(jsonStr)
-                    val streamingData = json.optJSONObject("streamingData")
-                    val adaptiveFormats = streamingData?.optJSONArray("adaptiveFormats")
-                    if (adaptiveFormats != null && adaptiveFormats.length() > 0) {
-                        for (i in 0 until adaptiveFormats.length()) {
-                            val fmt = adaptiveFormats.getJSONObject(i)
-                            val mimeType = fmt.optString("mimeType", "")
-                            if (mimeType.startsWith("audio/")) {
-                                var streamUrl = fmt.optString("url", "")
-                                if (streamUrl.isNotBlank()) {
-                                    if (streamUrl.startsWith("http://")) {
-                                        streamUrl = streamUrl.replaceFirst(Regex("^http://"), "https://")
+                val marker = "var ytInitialPlayerResponse = "
+                val startIndex = html.indexOf(marker)
+                if (startIndex != -1) {
+                    val jsonStart = startIndex + marker.length
+                    val endIndex = html.indexOf(";</script>", jsonStart)
+                    if (endIndex != -1) {
+                        val jsonStr = html.substring(jsonStart, endIndex)
+                        val json = JSONObject(jsonStr)
+                        val streamingData = json.optJSONObject("streamingData")
+                        
+                        // Check HLS playlist first (ExoPlayer plays .m3u8 directly)
+                        val hlsUrl = streamingData?.optString("hlsManifestUrl", "") ?: ""
+                        if (hlsUrl.isNotBlank()) {
+                            Log.d(TAG, "Direct web HLS manifest SUCCESS for videoId=$videoId")
+                            return hlsUrl
+                        }
+
+                        val adaptiveFormats = streamingData?.optJSONArray("adaptiveFormats")
+                        if (adaptiveFormats != null && adaptiveFormats.length() > 0) {
+                            for (i in 0 until adaptiveFormats.length()) {
+                                val fmt = adaptiveFormats.getJSONObject(i)
+                                val mimeType = fmt.optString("mimeType", "")
+                                if (mimeType.startsWith("audio/")) {
+                                    var streamUrl = fmt.optString("url", "")
+                                    if (streamUrl.isNotBlank()) {
+                                        if (streamUrl.startsWith("http://")) {
+                                            streamUrl = streamUrl.replaceFirst("http://", "https://")
+                                        }
+                                        Log.d(TAG, "Direct web player response SUCCESS for videoId=$videoId")
+                                        return streamUrl
                                     }
-                                    Log.d(TAG, "Direct web player response SUCCESS for videoId=$videoId")
-                                    return streamUrl
                                 }
                             }
                         }
@@ -412,6 +405,30 @@ object YoutubeDownloader {
         }
     }
 
+    private fun resolveAudioUrlNewPipe(videoId: String): String? {
+        ensureInitialized()
+        return try {
+            val url = "https://www.youtube.com/watch?v=$videoId"
+            val info = StreamInfo.getInfo(ServiceList.YouTube, url)
+            val audioStreams = info.audioStreams
+            if (!audioStreams.isNullOrEmpty()) {
+                val bestAudio = audioStreams.maxByOrNull { it.averageBitrate } ?: audioStreams[0]
+                var streamUrl: String? = bestAudio.url
+                if (!streamUrl.isNullOrBlank()) {
+                    if (streamUrl.startsWith("http://")) {
+                        streamUrl = streamUrl.replaceFirst("http://", "https://")
+                    }
+                    Log.d(TAG, "NewPipeExtractor SUCCESS for videoId=$videoId, bitrate=${bestAudio.averageBitrate}")
+                    return streamUrl
+                }
+            }
+            null
+        } catch (e: Exception) {
+            Log.e(TAG, "NewPipeExtractor resolve error for videoId=$videoId", e)
+            null
+        }
+    }
+
     private fun tryResolveFromPiped(videoId: String): String? {
         for (instance in pipedInstances) {
             try {
@@ -419,8 +436,8 @@ object YoutubeDownloader {
                 Log.d(TAG, "Trying Piped: $apiUrl")
                 val conn = URL(apiUrl).openConnection() as HttpURLConnection
                 conn.requestMethod = "GET"
-                conn.connectTimeout = 10000
-                conn.readTimeout = 10000
+                conn.connectTimeout = 8000
+                conn.readTimeout = 8000
                 conn.setRequestProperty("User-Agent", "Mozilla/5.0")
 
                 if (conn.responseCode == 200) {
@@ -444,7 +461,7 @@ object YoutubeDownloader {
                         }
                         if (bestUrl.isNotBlank()) {
                             if (bestUrl.startsWith("http://")) {
-                                bestUrl = bestUrl.replaceFirst(Regex("^http://"), "https://")
+                                bestUrl = bestUrl.replaceFirst("http://", "https://")
                             }
                             Log.d(TAG, "Piped SUCCESS from $instance (bitrate=$bestBitrate)")
                             return bestUrl
@@ -465,8 +482,8 @@ object YoutubeDownloader {
                 Log.d(TAG, "Trying Invidious: $apiUrl")
                 val conn = URL(apiUrl).openConnection() as HttpURLConnection
                 conn.requestMethod = "GET"
-                conn.connectTimeout = 10000
-                conn.readTimeout = 10000
+                conn.connectTimeout = 8000
+                conn.readTimeout = 8000
 
                 if (conn.responseCode == 200) {
                     val reader = BufferedReader(InputStreamReader(conn.inputStream))
@@ -483,7 +500,7 @@ object YoutubeDownloader {
                                 var streamUrl = fmt.optString("url", "")
                                 if (streamUrl.isNotBlank()) {
                                     if (streamUrl.startsWith("http://")) {
-                                        streamUrl = streamUrl.replaceFirst(Regex("^http://"), "https://")
+                                        streamUrl = streamUrl.replaceFirst("http://", "https://")
                                     }
                                     Log.d(TAG, "Invidious SUCCESS from $instance")
                                     return streamUrl
