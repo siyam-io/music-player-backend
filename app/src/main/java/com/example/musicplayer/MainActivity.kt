@@ -1,14 +1,16 @@
 package com.example.musicplayer
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.activity.result.IntentSenderRequest
 import androidx.activity.viewModels
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.flow.collectLatest
@@ -30,12 +32,12 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import com.example.musicplayer.data.Song
 import com.example.musicplayer.ui.screens.LibraryScreen
 import com.example.musicplayer.ui.screens.NowPlayingScreen
 import com.example.musicplayer.ui.theme.MusicPlayerTheme
 import com.example.musicplayer.viewmodel.MusicViewModel
-
-import com.example.musicplayer.ui.screens.YoutubeScreen
+import java.io.File
 
 class MainActivity : ComponentActivity() {
 
@@ -98,6 +100,8 @@ class MainActivity : ComponentActivity() {
             }
         }
 
+        handlePlayIntent(intent)
+
         setContent {
             MusicPlayerTheme {
                 var showNowPlaying by remember { mutableStateOf(false) }
@@ -135,6 +139,43 @@ class MainActivity : ComponentActivity() {
                             requestMultiplePermissionsLauncher.launch(permissionsToRequest.toTypedArray())
                         }
                     )
+                }
+            }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        handlePlayIntent(intent)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (isPermissionGranted) {
+            viewModel.refreshSongs(applicationContext)
+        }
+    }
+
+    private fun handlePlayIntent(intent: Intent?) {
+        if (intent?.action == "PLAY_DOWNLOADED_SONG") {
+            val filePath = intent.getStringExtra("FILE_PATH")
+            val title = intent.getStringExtra("TITLE") ?: "Downloaded Track"
+            if (filePath != null) {
+                val file = File(filePath)
+                if (file.exists()) {
+                    viewModel.refreshSongs(applicationContext)
+                    val downloadedSong = Song(
+                        id = filePath.hashCode().toLong(),
+                        title = title,
+                        artist = "Downloaded",
+                        album = "Downloads",
+                        uri = Uri.fromFile(file),
+                        path = filePath,
+                        duration = 0L,
+                        albumArtUri = null
+                    )
+                    viewModel.playSong(downloadedSong)
+                    Toast.makeText(applicationContext, "Playing $title 🎵", Toast.LENGTH_SHORT).show()
                 }
             }
         }

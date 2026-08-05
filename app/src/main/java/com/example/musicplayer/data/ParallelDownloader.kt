@@ -3,13 +3,16 @@ package com.example.musicplayer.data
 import android.app.DownloadManager
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.Context
+import android.content.Intent
 import android.media.MediaScannerConnection
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import com.example.musicplayer.MainActivity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -32,7 +35,7 @@ object ParallelDownloader {
             val channel = NotificationChannel(
                 CHANNEL_ID,
                 "Fast Downloads",
-                NotificationManager.IMPORTANCE_LOW
+                NotificationManager.IMPORTANCE_DEFAULT
             ).apply {
                 description = "High-speed multi-threaded downloads"
             }
@@ -112,11 +115,27 @@ object ParallelDownloader {
                 null
             )
 
+            // Build PendingIntent for Notification Click -> Play Downloaded Music
+            val playIntent = Intent(context, MainActivity::class.java).apply {
+                action = "PLAY_DOWNLOADED_SONG"
+                putExtra("FILE_PATH", outputFile.absolutePath)
+                putExtra("TITLE", cleanTitle)
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            }
+            val pendingIntent = PendingIntent.getActivity(
+                context,
+                notificationId,
+                playIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+
             // Success Notification
             val doneBuilder = NotificationCompat.Builder(context, CHANNEL_ID)
                 .setContentTitle("✅ Download Complete!")
-                .setContentText("$cleanTitle saved to ${if (extension == "mp4") "Videos" else "Music"}")
+                .setContentText("Tap to play $cleanTitle 🎵")
                 .setSmallIcon(android.R.drawable.stat_sys_download_done)
+                .setContentIntent(pendingIntent)
+                .setAutoCancel(true)
                 .setOngoing(false)
                 .setProgress(0, 0, false)
 
