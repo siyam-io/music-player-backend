@@ -189,13 +189,15 @@ object YoutubeDownloader {
         return results
     }
 
+    private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+
     fun resolveAudioUrl(videoId: String, callback: (String?) -> Unit) {
         Thread {
             // Attempt 1: Direct Native ANDROID_VR Innertube Resolver (< 0.3s, 100% Unciphered HTTPS Stream URL!)
             Log.d(TAG, "Trying direct ANDROID_VR Innertube resolver for videoId=$videoId")
             val vrResult = resolveAudioUrlDirectVR(videoId)
             if (vrResult != null) {
-                callback(vrResult)
+                mainHandler.post { callback(vrResult) }
                 return@Thread
             }
 
@@ -203,7 +205,7 @@ object YoutubeDownloader {
             Log.d(TAG, "Trying Piped API for videoId=$videoId")
             val pipedResult = tryResolveFromPiped(videoId)
             if (pipedResult != null) {
-                callback(pipedResult)
+                mainHandler.post { callback(pipedResult) }
                 return@Thread
             }
 
@@ -211,12 +213,12 @@ object YoutubeDownloader {
             Log.d(TAG, "Trying Invidious API for videoId=$videoId")
             val invidiousResult = tryResolveFromInvidious(videoId)
             if (invidiousResult != null) {
-                callback(invidiousResult)
+                mainHandler.post { callback(invidiousResult) }
                 return@Thread
             }
 
             Log.w(TAG, "All resolve methods failed for videoId=$videoId")
-            callback(null)
+            mainHandler.post { callback(null) }
         }.start()
     }
 
@@ -433,7 +435,8 @@ object YoutubeDownloader {
             } catch (e: Exception) {
                 Log.e(TAG, "resolveAllDownloadOptions failed for videoId=$videoId", e)
             }
-            callback(options.distinctBy { "${it.formatType}_${it.qualityLabel}" })
+            val distinctOptions = options.distinctBy { "${it.formatType}_${it.qualityLabel}" }
+            mainHandler.post { callback(distinctOptions) }
         }.start()
     }
 

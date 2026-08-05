@@ -102,8 +102,11 @@ object ParallelDownloader {
                 .setOngoing(false)
                 .setProgress(0, 0, false)
 
+            val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
             notificationManager.notify(notificationId, doneBuilder.build())
-            onComplete(true, outputFile)
+            mainHandler.post {
+                onComplete(true, outputFile)
+            }
 
         } catch (e: Exception) {
             Log.e(TAG, "Parallel download failed for $title", e)
@@ -115,7 +118,10 @@ object ParallelDownloader {
                 .setProgress(0, 0, false)
 
             notificationManager.notify(notificationId, failBuilder.build())
-            onComplete(false, null)
+            val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+            mainHandler.post {
+                onComplete(false, null)
+            }
         }
     }
 
