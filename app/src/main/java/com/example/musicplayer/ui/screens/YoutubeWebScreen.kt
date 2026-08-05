@@ -27,8 +27,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.MusicNote
-import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -42,9 +40,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.example.musicplayer.data.DownloadOption
-import com.example.musicplayer.data.Song
 import com.example.musicplayer.data.YoutubeDownloader
-import com.example.musicplayer.data.YoutubeVideo
 import com.example.musicplayer.ui.components.DownloadOptionsBottomSheet
 import com.example.musicplayer.viewmodel.MusicViewModel
 import kotlinx.coroutines.delay
@@ -81,7 +77,6 @@ fun YoutubeWebScreen(
     var currentUrl by remember { mutableStateOf("https://m.youtube.com") }
     var canGoBack by remember { mutableStateOf(false) }
     var isLoading by remember { mutableStateOf(false) }
-    var isResolvingAudio by remember { mutableStateOf(false) }
     var isFetchingDownloadOptions by remember { mutableStateOf(false) }
     var showDownloadSheet by remember { mutableStateOf(false) }
     var availableDownloadOptions by remember { mutableStateOf<List<DownloadOption>>(emptyList()) }
@@ -253,56 +248,12 @@ fun YoutubeWebScreen(
             }
         }
 
-        // VidMate Style Floating Action Buttons (Always Visible at Bottom Right)
-        Column(
-            horizontalAlignment = Alignment.End,
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+        // Single Clean VidMate-Style Fast Download Button (Bottom Right)
+        Box(
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .padding(end = 16.dp, bottom = 90.dp)
         ) {
-            // Play Audio in Background Button
-            FloatingActionButton(
-                onClick = {
-                    if (currentVideoId == null) {
-                        Toast.makeText(context, "Open any YouTube video to play audio in background!", Toast.LENGTH_SHORT).show()
-                    } else if (!isResolvingAudio) {
-                        isResolvingAudio = true
-                        Toast.makeText(context, "Extracting audio for background playback...", Toast.LENGTH_SHORT).show()
-                        YoutubeDownloader.resolveAudioUrl(currentVideoId) { audioUrl ->
-                            isResolvingAudio = false
-                            if (audioUrl != null) {
-                                val videoSong = Song(
-                                    id = currentVideoId.hashCode().toLong(),
-                                    title = "YouTube Track ($currentVideoId)",
-                                    artist = "YouTube",
-                                    album = "YouTube Web",
-                                    uri = Uri.parse(audioUrl),
-                                    path = audioUrl,
-                                    duration = 0L,
-                                    albumArtUri = Uri.parse("https://i.ytimg.com/vi/$currentVideoId/hqdefault.jpg")
-                                )
-                                viewModel.playSong(videoSong)
-                                Toast.makeText(context, "Playing audio in background 🎵", Toast.LENGTH_SHORT).show()
-                            } else {
-                                Toast.makeText(context, "Failed to extract audio stream", Toast.LENGTH_SHORT).show()
-                            }
-                        }
-                    }
-                },
-                containerColor = MaterialTheme.colorScheme.primary,
-                contentColor = Color.Black,
-                shape = CircleShape,
-                modifier = Modifier.size(54.dp)
-            ) {
-                if (isResolvingAudio) {
-                    CircularProgressIndicator(modifier = Modifier.size(24.dp), color = Color.Black, strokeWidth = 2.dp)
-                } else {
-                    Icon(Icons.Default.PlayArrow, contentDescription = "Play Audio in Background")
-                }
-            }
-
-            // VidMate Style Fast Download Button (Audio & Video Formats)
             ExtendedFloatingActionButton(
                 onClick = {
                     if (currentVideoId == null) {
