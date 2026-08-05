@@ -29,7 +29,13 @@ android {
             signingConfig = signingConfigs.getByName("debug")
         }
         debug {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
+            signingConfig = signingConfigs.getByName("debug")
         }
     }
 
@@ -68,7 +74,4 @@ dependencies {
     // Media3 (ExoPlayer & MediaSession)
     implementation(libs.media3.exoplayer)
     implementation(libs.media3.session)
-
-    // NewPipeExtractor for direct client-side YouTube extraction
-    implementation("com.github.TeamNewPipe:NewPipeExtractor:v0.24.3")
 }

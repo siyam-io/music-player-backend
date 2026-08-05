@@ -7,20 +7,11 @@ import android.os.Environment
 import android.util.Log
 import org.json.JSONArray
 import org.json.JSONObject
-import org.schabi.newpipe.extractor.NewPipe
-import org.schabi.newpipe.extractor.ServiceList
-import org.schabi.newpipe.extractor.downloader.Downloader
-import org.schabi.newpipe.extractor.downloader.Request
-import org.schabi.newpipe.extractor.downloader.Response
-import org.schabi.newpipe.extractor.search.SearchExtractor
-import org.schabi.newpipe.extractor.services.youtube.linkHandler.YoutubeSearchQueryHandlerFactory
-import org.schabi.newpipe.extractor.stream.StreamInfo
 import java.io.BufferedReader
 import java.io.InputStreamReader
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
-import java.util.Locale
 
 private const val TAG = "YoutubeDownloader"
 
@@ -32,77 +23,7 @@ data class YoutubeVideo(
     val thumbnail: String
 )
 
-class AppDownloader private constructor() : Downloader() {
-    companion object {
-        private var instance: AppDownloader? = null
-        fun getInstance(): AppDownloader {
-            if (instance == null) {
-                instance = AppDownloader()
-            }
-            return instance!!
-        }
-    }
-
-    override fun execute(request: Request): Response {
-        val httpMethod = request.httpMethod()
-        val url = request.url()
-        val headers = request.headers()
-        val dataToSend = request.dataToSend()
-
-        val conn = URL(url).openConnection() as HttpURLConnection
-        conn.requestMethod = httpMethod
-        conn.connectTimeout = 15000
-        conn.readTimeout = 15000
-        conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-
-        for ((headerName, headerValueList) in headers) {
-            if (headerName != null && headerValueList != null) {
-                for (valItem in headerValueList) {
-                    conn.addRequestProperty(headerName, valItem)
-                }
-            }
-        }
-
-        if (dataToSend != null && (httpMethod == "POST" || httpMethod == "PUT")) {
-            conn.doOutput = true
-            conn.outputStream.write(dataToSend)
-        }
-
-        val responseCode = conn.responseCode
-        val responseMessage = conn.responseMessage ?: ""
-        val responseHeaders = conn.headerFields ?: emptyMap()
-        val cleanHeaders = mutableMapOf<String, List<String>>()
-        for ((k, v) in responseHeaders) {
-            if (k != null && v != null) {
-                cleanHeaders[k] = v
-            }
-        }
-
-        val inputStream = if (responseCode in 200..299) conn.inputStream else conn.errorStream
-        val responseBody = inputStream?.bufferedReader()?.use { it.readText() } ?: ""
-
-        return Response(responseCode, responseMessage, cleanHeaders, responseBody, request.url())
-    }
-}
-
 object YoutubeDownloader {
-    @Volatile
-    private var isInitialized = false
-
-    private fun ensureInitialized() {
-        if (!isInitialized) {
-            synchronized(this) {
-                if (!isInitialized) {
-                    try {
-                        NewPipe.init(AppDownloader.getInstance())
-                        isInitialized = true
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Error initializing NewPipeExtractor", e)
-                    }
-                }
-            }
-        }
-    }
 
     private val invidiousInstances = listOf(
         "https://inv.nadeko.net",
@@ -126,16 +47,8 @@ object YoutubeDownloader {
             return directWebResults
         }
 
-        // Attempt 2: Client-Side NewPipeExtractor Search
-        Log.w(TAG, "Direct web search empty, trying NewPipe search for: $query")
-        val newPipeResults = searchVideosNewPipe(query)
-        if (newPipeResults.isNotEmpty()) {
-            Log.d(TAG, "NewPipe search SUCCESS for: $query (count=${newPipeResults.size})")
-            return newPipeResults
-        }
-
-        // Attempt 3: Invidious Fallback Search
-        Log.w(TAG, "NewPipe search empty, using fallback Invidious search for: $query")
+        // Attempt 2: Invidious Fallback Search
+        Log.w(TAG, "Direct web search empty, using fallback Invidious search for: $query")
         return searchVideosFallback(query)
     }
 
@@ -216,49 +129,6 @@ object YoutubeDownloader {
         return results
     }
 
-    private fun searchVideosNewPipe(query: String): List<YoutubeVideo> {
-        ensureInitialized()
-        val results = mutableListOf<YoutubeVideo>()
-        try {
-            val searchExtractor: SearchExtractor = ServiceList.YouTube.getSearchExtractor(
-                query,
-                listOf(YoutubeSearchQueryHandlerFactory.MUSIC_SONGS),
-                ""
-            )
-            searchExtractor.fetchPage()
-            val page = searchExtractor.initialPage
-            for (item in page.items) {
-                val streamItem = item as? org.schabi.newpipe.extractor.stream.StreamInfoItem
-                val url = item.url ?: ""
-                val videoId = if (url.contains("v=")) {
-                    url.substringAfter("v=").substringBefore("&")
-                } else {
-                    url.substringAfterLast("/")
-                }
-                
-                if (videoId.isNotBlank() && videoId.length in 10..12) {
-                    val durationSeconds = streamItem?.duration ?: 0L
-                    val minutes = durationSeconds / 60
-                    val seconds = durationSeconds % 60
-                    val durationText = String.format("%02d:%02d", minutes, seconds)
-
-                    results.add(
-                        YoutubeVideo(
-                            id = videoId,
-                            title = streamItem?.name ?: item.name ?: "Unknown Title",
-                            artist = streamItem?.uploaderName ?: "Unknown Artist",
-                            durationText = durationText,
-                            thumbnail = "https://i.ytimg.com/vi/$videoId/hqdefault.jpg"
-                        )
-                    )
-                }
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "NewPipe search failed for query=$query", e)
-        }
-        return results
-    }
-
     private fun searchVideosFallback(query: String): List<YoutubeVideo> {
         val results = mutableListOf<YoutubeVideo>()
         val encoded = URLEncoder.encode(query, "UTF-8")
@@ -321,15 +191,7 @@ object YoutubeDownloader {
                 return@Thread
             }
 
-            // Attempt 2: Direct Client-Side Extraction via NewPipeExtractor
-            Log.d(TAG, "Trying direct client-side NewPipeExtractor for videoId=$videoId")
-            val newPipeResult = resolveAudioUrlNewPipe(videoId)
-            if (newPipeResult != null) {
-                callback(newPipeResult)
-                return@Thread
-            }
-
-            // Attempt 3: Public Piped API
+            // Attempt 2: Public Piped API
             Log.d(TAG, "Trying Piped API for videoId=$videoId")
             val pipedResult = tryResolveFromPiped(videoId)
             if (pipedResult != null) {
@@ -337,7 +199,7 @@ object YoutubeDownloader {
                 return@Thread
             }
 
-            // Attempt 4: Public Invidious API
+            // Attempt 3: Public Invidious API
             Log.d(TAG, "Trying Invidious API for videoId=$videoId")
             val invidiousResult = tryResolveFromInvidious(videoId)
             if (invidiousResult != null) {
@@ -434,30 +296,6 @@ object YoutubeDownloader {
             null
         } catch (e: Exception) {
             Log.e(TAG, "Direct ANDROID_VR resolve error for videoId=$videoId", e)
-            null
-        }
-    }
-
-    private fun resolveAudioUrlNewPipe(videoId: String): String? {
-        ensureInitialized()
-        return try {
-            val url = "https://www.youtube.com/watch?v=$videoId"
-            val info = StreamInfo.getInfo(ServiceList.YouTube, url)
-            val audioStreams = info.audioStreams
-            if (!audioStreams.isNullOrEmpty()) {
-                val bestAudio = audioStreams.maxByOrNull { it.averageBitrate } ?: audioStreams[0]
-                var streamUrl: String? = bestAudio.url
-                if (!streamUrl.isNullOrBlank()) {
-                    if (streamUrl.startsWith("http://")) {
-                        streamUrl = streamUrl.replaceFirst("http://", "https://")
-                    }
-                    Log.d(TAG, "NewPipeExtractor SUCCESS for videoId=$videoId, bitrate=${bestAudio.averageBitrate}")
-                    return streamUrl
-                }
-            }
-            null
-        } catch (e: Exception) {
-            Log.e(TAG, "NewPipeExtractor resolve error for videoId=$videoId", e)
             null
         }
     }
