@@ -42,36 +42,18 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.example.musicplayer.data.DownloadOption
 import com.example.musicplayer.data.YoutubeDownloader
 import com.example.musicplayer.ui.components.DownloadOptionsBottomSheet
-import com.example.musicplayer.viewmodel.MusicViewModel
-import java.io.ByteArrayInputStream
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
-private const val TAG = "YoutubeWebScreen"
-
-private val AD_HOSTS = setOf(
-    "googleads.g.doubleclick.net",
-    "pubads.g.doubleclick.net",
-    "pagead2.googlesyndication.com",
-    "googleadservices.com",
-    "static.doubleclick.net",
-    "adservice.google.com"
-)
-
-private fun isAdHost(urlStr: String): Boolean {
-    return try {
-        val host = Uri.parse(urlStr).host?.lowercase() ?: return false
-        AD_HOSTS.any { host == it || host.endsWith(".$it") } || urlStr.contains("/pagead/")
-    } catch (e: Exception) {
-        false
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
+@SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun YoutubeWebScreen(
-    viewModel: MusicViewModel,
     onBackToLibrary: () -> Unit = {}
 ) {
     val context = LocalContext.current
@@ -84,6 +66,8 @@ fun YoutubeWebScreen(
     var showDownloadSheet by remember { mutableStateOf(false) }
     var availableDownloadOptions by remember { mutableStateOf<List<DownloadOption>>(emptyList()) }
     var customView by remember { mutableStateOf<View?>(null) }
+    var customViewCallback by remember { mutableStateOf<WebChromeClient.CustomViewCallback?>(null) }
+    var resolvedVideoTitle by remember { mutableStateOf("YouTube Track") }
 
     val currentVideoId = remember(currentUrl) {
         extractVideoId(currentUrl)
@@ -100,130 +84,86 @@ fun YoutubeWebScreen(
             .fillMaxSize()
             .background(Color.Black)
     ) {
-        // 100% Fullscreen Web View Container (Hardware Accelerated 60/120 FPS)
-        AndroidView(
-            factory = { ctx ->
-                WebView(ctx).apply {
-                    layoutParams = ViewGroup.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT,
-                        ViewGroup.LayoutParams.MATCH_PARENT
-                    )
-                    
-                    setLayerType(View.LAYER_TYPE_HARDWARE, null)
+        Column(modifier = Modifier.fillMaxSize()) {
+            AndroidView(
+                factory = {
+                    WebView(it).apply {
+                        webViewInstance = this
+                        layoutParams = ViewGroup.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.MATCH_PARENT
+                        )
 
-                    @SuppressLint("SetJavaScriptEnabled")
-                    settings.apply {
-                        javaScriptEnabled = true
-                        domStorageEnabled = true
-                        databaseEnabled = true
-                        useWideViewPort = true
-                        loadWithOverviewMode = true
-                        mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
-                        // Clean Chrome Mobile User-Agent to bypass YouTube bot detection and allow seamless Google Sign-In
-                        userAgentString = "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
+                        val settings = settings
+                        settings.javaScriptEnabled = true
+                        settings.domStorageEnabled = true
+                        settings.mediaPlaybackRequiresUserGesture = false
+                        settings.allowFileAccess = true
+                        settings.mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+                        settings.useWideViewPort = true
+                        settings.loadWithOverviewMode = true
+                        settings.setSupportZoom(true)
+                        settings.builtInZoomControls = true
+                        settings.displayZoomControls = false
+
+                        val cleanUserAgent = "Mozilla/5.0 (Linux; Android 14; Pixel 8 Build/UD1A.230803.041) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.6261.105 Mobile Safari/537.36"
+                        settings.userAgentString = cleanUserAgent
+
+                        webChromeClient = object : WebChromeClient() {
+                            override fun onShowCustomView(view: View?, callback: CustomViewCallback?) {
+                                super.onShowCustomView(view, callback)
+                                customViewCallback = callback
+                                customView = view
+                                (context as? Activity)?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+                            }
+
+                            override fun onHideCustomView() {
+                                super.onHideCustomView()
+                                customViewCallback?.onCustomViewHidden()
+                                customViewCallback = null
+                                customView = null
+                                (context as? Activity)?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                            }
+                        }
+
+                        webViewClient = object : WebViewClient() {
+                            override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
+                                super.onPageStarted(view, url, favicon)
+                                isLoading = true
+                                if (url != null) {
+                                    currentUrl = url
+                                    canGoBack = view?.canGoBack() == true
+                                }
+                            }
+
+                            override fun onPageFinished(view: WebView?, url: String?) {
+                                super.onPageFinished(view, url)
+                                isLoading = false
+                                if (url != null) {
+                                    currentUrl = url
+                                    canGoBack = view?.canGoBack() == true
+                                }
+                            }
+
+                            override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
+                                val targetUrl = request?.url?.toString() ?: return false
+                                if (targetUrl.contains("youtube.com") || targetUrl.contains("youtu.be")) {
+                                    return false
+                                }
+                                return false
+                            }
+                        }
+
+                        loadUrl("https://m.youtube.com")
                     }
-
-                    val cookieManager = CookieManager.getInstance()
-                    cookieManager.setAcceptCookie(true)
-                    cookieManager.setAcceptThirdPartyCookies(this, true)
-
-                    webViewClient = object : WebViewClient() {
-                        override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {
-                            val reqUrl = request?.url?.toString() ?: ""
-                            if (isAdHost(reqUrl)) {
-                                return WebResourceResponse("text/plain", "UTF-8", ByteArrayInputStream(ByteArray(0)))
-                            }
-                            return super.shouldInterceptRequest(view, request)
-                        }
-
-                        override fun doUpdateVisitedHistory(view: WebView?, url: String?, isReload: Boolean) {
-                            super.doUpdateVisitedHistory(view, url, isReload)
-                            if (url != null && url != currentUrl) {
-                                currentUrl = url
-                                canGoBack = view?.canGoBack() == true
-                            }
-                        }
-
-                        override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
-                            super.onPageStarted(view, url, favicon)
-                            isLoading = true
-                            if (url != null) {
-                                currentUrl = url
-                            }
-                            canGoBack = canGoBack()
-                        }
-
-                        override fun onPageFinished(view: WebView?, url: String?) {
-                            super.onPageFinished(view, url)
-                            isLoading = false
-                            if (url != null) {
-                                currentUrl = url
-                            }
-                            canGoBack = canGoBack()
-
-                            // Built-in AdBlocker + Auto-Skip Video Ads Script
-                            val adBlockJs = """
-                                (function() {
-                                    var css = '.ytp-ad-overlay-container, .ytp-ad-message-container, .video-ads, .ytp-ad-module, ytd-ad-slot-renderer, #player-ads, .ad-showing, .ad-interrupting { display: none !important; }';
-                                    var style = document.createElement('style');
-                                    style.type = 'text/css';
-                                    style.appendChild(document.createTextNode(css));
-                                    (document.head || document.documentElement).appendChild(style);
-
-                                    setInterval(function() {
-                                        var skipBtn = document.querySelector('.ytp-ad-skip-button, .ytp-ad-skip-button-modern, .ytp-skip-ad-button, .ytp-ad-skip-button-slot');
-                                        if (skipBtn) {
-                                            skipBtn.click();
-                                        }
-                                        var adVideo = document.querySelector('.ad-showing video');
-                                        if (adVideo && !isNaN(adVideo.duration)) {
-                                            adVideo.currentTime = adVideo.duration;
-                                        }
-                                    }, 400);
-                                })();
-                            """.trimIndent()
-
-                            view?.evaluateJavascript(adBlockJs, null)
-                        }
-                    }
-
-                    webChromeClient = object : WebChromeClient() {
-                        override fun onShowCustomView(view: View?, callback: CustomViewCallback?) {
-                            super.onShowCustomView(view, callback)
-                            customView = view
-                            // Automatically switch to Landscape Mode when watching fullscreen video!
-                            (context as? Activity)?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-                        }
-
-                        override fun onHideCustomView() {
-                            super.onHideCustomView()
-                            customView = null
-                            // Restore normal orientation when exiting video fullscreen
-                            (context as? Activity)?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-                        }
-                    }
-
-                    loadUrl("https://m.youtube.com")
-                    webViewInstance = this
-                }
-            },
-            update = { webView ->
-                webViewInstance = webView
-            },
-            modifier = Modifier.fillMaxSize()
-        )
-
-        // Loading Bar
-        if (isLoading) {
-            LinearProgressIndicator(
+                },
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .align(Alignment.TopCenter),
-                color = MaterialTheme.colorScheme.primary
+                    .fillMaxSize()
+                    .weight(1f)
             )
         }
 
-        // Floating Top Back & Home Navigation Bar (Always available for 1-tap Return to Tabs)
+        // Top Navigation overlay when browsing inside YouTube
         Row(
             modifier = Modifier
                 .padding(top = 12.dp, start = 12.dp)
@@ -233,14 +173,13 @@ fun YoutubeWebScreen(
                 .align(Alignment.TopStart),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Return to Tabs / Library Button
             IconButton(
-                onClick = { onBackToLibrary() },
+                onClick = onBackToLibrary,
                 modifier = Modifier.size(36.dp)
             ) {
                 Icon(
                     Icons.Default.Home,
-                    contentDescription = "Show Tabs / Library",
+                    contentDescription = "Home Tab",
                     tint = Color(0xFF1DB954),
                     modifier = Modifier.size(20.dp)
                 )
@@ -259,6 +198,7 @@ fun YoutubeWebScreen(
                     )
                 }
             }
+
             IconButton(
                 onClick = { webViewInstance?.reload() },
                 modifier = Modifier.size(36.dp)
@@ -285,6 +225,13 @@ fun YoutubeWebScreen(
                             isFetchingDownloadOptions = true
                             showDownloadSheet = true
                             availableDownloadOptions = emptyList()
+                            resolvedVideoTitle = "Fetching song title..."
+                            coroutineScope.launch(Dispatchers.IO) {
+                                val title = YoutubeDownloader.fetchVideoTitle(currentVideoId)
+                                withContext(Dispatchers.Main) {
+                                    resolvedVideoTitle = title
+                                }
+                            }
                             YoutubeDownloader.resolveAllDownloadOptions(currentVideoId) { options ->
                                 isFetchingDownloadOptions = false
                                 availableDownloadOptions = options
@@ -308,28 +255,41 @@ fun YoutubeWebScreen(
 
         // Fullscreen Video View Overlay
         if (customView != null) {
-            AndroidView(
-                factory = {
-                    FrameLayout(it).apply {
-                        addView(
-                            customView,
-                            ViewGroup.LayoutParams(
-                                ViewGroup.LayoutParams.MATCH_PARENT,
-                                ViewGroup.LayoutParams.MATCH_PARENT
-                            )
-                        )
-                    }
+            Dialog(
+                onDismissRequest = {
+                    customViewCallback?.onCustomViewHidden()
+                    customViewCallback = null
+                    customView = null
+                    (context as? Activity)?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
                 },
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color.Black)
-            )
+                properties = DialogProperties(
+                    usePlatformDefaultWidth = false,
+                    decorFitsSystemWindows = false
+                )
+            ) {
+                AndroidView(
+                    factory = { ctx ->
+                        FrameLayout(ctx).apply {
+                            setBackgroundColor(android.graphics.Color.BLACK)
+                            (customView?.parent as? ViewGroup)?.removeView(customView)
+                            addView(
+                                customView,
+                                ViewGroup.LayoutParams(
+                                    ViewGroup.LayoutParams.MATCH_PARENT,
+                                    ViewGroup.LayoutParams.MATCH_PARENT
+                                )
+                            )
+                        }
+                    },
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
         }
 
         // Download Options Bottom Sheet (Audio & Video Formats)
         if (showDownloadSheet && currentVideoId != null) {
             DownloadOptionsBottomSheet(
-                videoTitle = "YouTube Track ($currentVideoId)",
+                videoTitle = resolvedVideoTitle,
                 options = availableDownloadOptions,
                 isLoading = isFetchingDownloadOptions,
                 onDismiss = { showDownloadSheet = false },
@@ -344,11 +304,9 @@ private fun extractVideoId(url: String): String? {
         if (url.contains("v=")) {
             url.substringAfter("v=").substringBefore("&").substringBefore("?")
         } else if (url.contains("youtu.be/")) {
-            url.substringAfter("youtu.be/").substringBefore("&").substringBefore("?")
-        } else if (url.contains("youtube.com/shorts/")) {
-            url.substringAfter("youtube.com/shorts/").substringBefore("&").substringBefore("?")
-        } else if (url.contains("embed/")) {
-            url.substringAfter("embed/").substringBefore("&").substringBefore("?")
+            url.substringAfter("youtu.be/").substringBefore("?")
+        } else if (url.contains("/shorts/")) {
+            url.substringAfter("/shorts/").substringBefore("?")
         } else {
             null
         }

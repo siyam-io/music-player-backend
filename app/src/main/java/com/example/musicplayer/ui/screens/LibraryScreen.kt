@@ -359,7 +359,6 @@ fun LibraryScreen(
                         }
                         4 -> { // YouTube Web Tab
                             YoutubeWebScreen(
-                                viewModel = viewModel,
                                 onBackToLibrary = {
                                     coroutineScope.launch { pagerState.animateScrollToPage(0) }
                                 }
