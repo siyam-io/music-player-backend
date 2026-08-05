@@ -55,8 +55,10 @@ class AppDownloader private constructor() : Downloader() {
         conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
 
         for ((headerName, headerValueList) in headers) {
-            if (headerValueList.isNotEmpty()) {
-                conn.setRequestProperty(headerName, headerValueList[0])
+            if (headerName != null && headerValueList != null) {
+                for (valItem in headerValueList) {
+                    conn.addRequestProperty(headerName, valItem)
+                }
             }
         }
 
@@ -67,12 +69,18 @@ class AppDownloader private constructor() : Downloader() {
 
         val responseCode = conn.responseCode
         val responseMessage = conn.responseMessage ?: ""
-        val responseHeaders = conn.headerFields
+        val responseHeaders = conn.headerFields ?: emptyMap()
+        val cleanHeaders = mutableMapOf<String, List<String>>()
+        for ((k, v) in responseHeaders) {
+            if (k != null && v != null) {
+                cleanHeaders[k] = v
+            }
+        }
 
         val inputStream = if (responseCode in 200..299) conn.inputStream else conn.errorStream
         val responseBody = inputStream?.bufferedReader()?.use { it.readText() } ?: ""
 
-        return Response(responseCode, responseMessage, responseHeaders, responseBody, request.url())
+        return Response(responseCode, responseMessage, cleanHeaders, responseBody, request.url())
     }
 }
 
@@ -363,7 +371,7 @@ object YoutubeDownloader {
                 }
                 if (streamUrl.isNotBlank()) {
                     if (streamUrl.startsWith("http://")) {
-                        streamUrl = streamUrl.replaceFirst("http://", "https://")
+                        streamUrl = streamUrl.replaceFirst(Regex("^http://"), "https://")
                     }
                     Log.d(TAG, "Server SUCCESS for videoId=$videoId, url=$streamUrl")
                     return streamUrl
@@ -411,7 +419,7 @@ object YoutubeDownloader {
                         }
                         if (bestUrl.isNotBlank()) {
                             if (bestUrl.startsWith("http://")) {
-                                bestUrl = bestUrl.replaceFirst("http://", "https://")
+                                bestUrl = bestUrl.replaceFirst(Regex("^http://"), "https://")
                             }
                             Log.d(TAG, "Piped SUCCESS from $instance (bitrate=$bestBitrate)")
                             return bestUrl
@@ -450,7 +458,7 @@ object YoutubeDownloader {
                                 var streamUrl = fmt.optString("url", "")
                                 if (streamUrl.isNotBlank()) {
                                     if (streamUrl.startsWith("http://")) {
-                                        streamUrl = streamUrl.replaceFirst("http://", "https://")
+                                        streamUrl = streamUrl.replaceFirst(Regex("^http://"), "https://")
                                     }
                                     Log.d(TAG, "Invidious SUCCESS from $instance")
                                     return streamUrl
