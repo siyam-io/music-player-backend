@@ -77,20 +77,27 @@ object ParallelDownloader {
 
         try {
             val url = URL(urlStr)
-            val headConn = url.openConnection() as HttpURLConnection
-            headConn.requestMethod = "HEAD"
-            headConn.connectTimeout = 8000
-            headConn.readTimeout = 8000
-            headConn.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
-            headConn.connect()
+            val probeConn = url.openConnection() as HttpURLConnection
+            probeConn.requestMethod = "GET"
+            probeConn.setRequestProperty("Range", "bytes=0-1")
+            probeConn.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+            probeConn.connectTimeout = 10000
+            probeConn.readTimeout = 10000
+            probeConn.connect()
 
-            val contentLength = headConn.contentLengthLong
-            val acceptRanges = headConn.getHeaderField("Accept-Ranges")
-            val supportsRanges = contentLength > 0 && (acceptRanges == "bytes" || headConn.responseCode in 200..206)
+            var contentLength = -1L
+            val contentRange = probeConn.getHeaderField("Content-Range")
+            if (!contentRange.isNullOrBlank() && contentRange.contains("/")) {
+                contentLength = contentRange.substringAfter("/").toLongOrNull() ?: -1L
+            }
+            if (contentLength <= 0) {
+                contentLength = probeConn.contentLengthLong
+            }
+            probeConn.disconnect()
 
-            Log.d(TAG, "Content-Length: $contentLength bytes, Supports Ranges: $supportsRanges")
+            Log.d(TAG, "Probe Content-Length: $contentLength bytes")
 
-            if (!supportsRanges || contentLength < 500_000) {
+            if (contentLength < 500_000) {
                 downloadSingleThread(urlStr, outputFile, builder, notificationManager, notificationId, contentLength, onProgress)
             } else {
                 downloadParallel(urlStr, outputFile, contentLength, builder, notificationManager, notificationId, onProgress)
@@ -186,7 +193,7 @@ object ParallelDownloader {
                     conn = url.openConnection() as HttpURLConnection
                     conn.requestMethod = "GET"
                     conn.setRequestProperty("Range", "bytes=$startByte-$endByte")
-                    conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
+                    conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
                     conn.connectTimeout = 12000
                     conn.readTimeout = 12000
 
@@ -203,7 +210,7 @@ object ParallelDownloader {
                         val now = System.currentTimeMillis()
                         if (now - lastNotifyTime.get() > 500 || total >= totalBytes) {
                             lastNotifyTime.set(now)
-                            val percent = ((total * 100) / totalBytes).toInt().coerceIn(0, 100)
+                            val percent = if (totalBytes > 0) ((total * 100) / totalBytes).toInt().coerceIn(0, 100) else 50
                             val elapsedTime = (now - startTime) / 1000.0
                             val speedMBs = if (elapsedTime > 0) (total / (1024.0 * 1024.0 * elapsedTime)) else 0.0
                             val speedStr = String.format("%.1f MB/s", speedMBs)
@@ -241,7 +248,7 @@ object ParallelDownloader {
         val url = URL(urlStr)
         val conn = url.openConnection() as HttpURLConnection
         conn.requestMethod = "GET"
-        conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
+        conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
         conn.connectTimeout = 12000
         conn.readTimeout = 12000
 
@@ -258,9 +265,9 @@ object ParallelDownloader {
             downloaded += bytesRead
 
             val now = System.currentTimeMillis()
-            if (now - lastNotifyTime > 500 && totalBytes > 0) {
+            if (now - lastNotifyTime > 500) {
                 lastNotifyTime = now
-                val percent = ((downloaded * 100) / totalBytes).toInt().coerceIn(0, 100)
+                val percent = if (totalBytes > 0) ((downloaded * 100) / totalBytes).toInt().coerceIn(0, 100) else 50
                 val elapsedTime = (now - startTime) / 1000.0
                 val speedMBs = if (elapsedTime > 0) (downloaded / (1024.0 * 1024.0 * elapsedTime)) else 0.0
                 val speedStr = String.format("%.1f MB/s", speedMBs)
