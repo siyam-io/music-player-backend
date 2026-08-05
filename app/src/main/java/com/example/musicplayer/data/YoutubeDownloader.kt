@@ -285,24 +285,24 @@ object YoutubeDownloader {
 
     fun resolveAudioUrl(videoId: String, callback: (String?) -> Unit) {
         Thread {
-            // Attempt 1: Direct Client-Side Extraction via NewPipeExtractor (Fastest & No IP Locking issues!)
-            Log.d(TAG, "Trying direct client-side NewPipeExtractor for videoId=$videoId")
-            val newPipeResult = resolveAudioUrlNewPipe(videoId)
-            if (newPipeResult != null) {
-                callback(newPipeResult)
-                return@Thread
-            }
-
-            // Attempt 2: Server-side resolving
-            Log.d(TAG, "NewPipe extractor failed, trying server for videoId=$videoId")
+            // Attempt 1: Try our yt-dlp backend server with android,mweb client (2-3s fast resolve)
+            Log.d(TAG, "Trying yt-dlp server for videoId=$videoId")
             val serverResult = tryResolveFromServer(videoId)
             if (serverResult != null) {
                 callback(serverResult)
                 return@Thread
             }
 
+            // Attempt 2: Direct Client-Side Extraction via NewPipeExtractor
+            Log.d(TAG, "Server failed, trying direct client-side NewPipeExtractor for videoId=$videoId")
+            val newPipeResult = resolveAudioUrlNewPipe(videoId)
+            if (newPipeResult != null) {
+                callback(newPipeResult)
+                return@Thread
+            }
+
             // Attempt 3: Piped API
-            Log.d(TAG, "Server failed, trying Piped API for videoId=$videoId")
+            Log.d(TAG, "NewPipe failed, trying Piped API for videoId=$videoId")
             val pipedResult = tryResolveFromPiped(videoId)
             if (pipedResult != null) {
                 callback(pipedResult)
@@ -333,7 +333,7 @@ object YoutubeDownloader {
                 var streamUrl: String? = bestAudio.url
                 if (!streamUrl.isNullOrBlank()) {
                     if (streamUrl.startsWith("http://")) {
-                        streamUrl = streamUrl.replaceFirst("http://", "https://")
+                        streamUrl = streamUrl.replaceFirst(Regex("^http://"), "https://")
                     }
                     Log.d(TAG, "NewPipeExtractor SUCCESS for videoId=$videoId, bitrate=${bestAudio.averageBitrate}")
                     return streamUrl
@@ -352,8 +352,8 @@ object YoutubeDownloader {
         return try {
             val conn = URL(serverUrl).openConnection() as HttpURLConnection
             conn.requestMethod = "GET"
-            conn.connectTimeout = 15000
-            conn.readTimeout = 20000
+            conn.connectTimeout = 20000
+            conn.readTimeout = 35000
             conn.setRequestProperty("Connection", "close")
 
             val responseCode = conn.responseCode
