@@ -16,6 +16,8 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -59,8 +61,7 @@ import kotlinx.coroutines.withContext
 @Composable
 fun LibraryScreen(
     viewModel: MusicViewModel,
-    onMiniPlayerClick: () -> Unit,
-    onSearchYoutubeClick: () -> Unit
+    onMiniPlayerClick: () -> Unit
 ) {
     val songs by viewModel.songs.collectAsState()
     val currentSong by viewModel.currentSong.collectAsState()
@@ -71,7 +72,9 @@ fun LibraryScreen(
     val context = LocalContext.current
     val view = LocalView.current
 
-    var selectedTab by remember { mutableIntStateOf(0) }
+    val coroutineScope = rememberCoroutineScope()
+    val pagerState = rememberPagerState(initialPage = 0, pageCount = { 4 })
+    val selectedTab = pagerState.currentPage
     var selectedAlbumName by remember { mutableStateOf<String?>(null) }
     var selectedPlaylistName by remember { mutableStateOf<String?>(null) }
     
@@ -92,31 +95,21 @@ fun LibraryScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        "Library",
-                        fontSize = 32.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White
-                    )
-                },
-                actions = {
-                    IconButton(onClick = {
-                        triggerHaptic(view)
-                        onSearchYoutubeClick()
-                    }) {
-                        Icon(
-                            imageVector = Icons.Default.Search,
-                            contentDescription = "Search YouTube",
-                            tint = Color.White
+            if (selectedTab != 3) {
+                TopAppBar(
+                    title = {
+                        Text(
+                            "Library",
+                            fontSize = 32.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
                         )
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color.Black
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = Color.Black
+                    )
                 )
-            )
+            }
         },
         containerColor = Color.Black
     ) { paddingValues ->
@@ -135,34 +128,39 @@ fun LibraryScreen(
                 ) {
                     Tab(
                         selected = selectedTab == 0,
-                        onClick = { selectedTab = 0 },
+                        onClick = {
+                            coroutineScope.launch { pagerState.animateScrollToPage(0) }
+                        },
                         text = { Text("Tracks", fontSize = 16.sp, fontWeight = FontWeight.Bold) }
                     )
                     Tab(
                         selected = selectedTab == 1,
-                        onClick = { selectedTab = 1 },
+                        onClick = {
+                            coroutineScope.launch { pagerState.animateScrollToPage(1) }
+                        },
                         text = { Text("Albums", fontSize = 16.sp, fontWeight = FontWeight.Bold) }
                     )
                     Tab(
                         selected = selectedTab == 2,
-                        onClick = { selectedTab = 2 },
+                        onClick = {
+                            coroutineScope.launch { pagerState.animateScrollToPage(2) }
+                        },
                         text = { Text("Favorites", fontSize = 16.sp, fontWeight = FontWeight.Bold) }
+                    )
+                    Tab(
+                        selected = selectedTab == 3,
+                        onClick = {
+                            coroutineScope.launch { pagerState.animateScrollToPage(3) }
+                        },
+                        text = { Text("Search YT", fontSize = 16.sp, fontWeight = FontWeight.Bold) }
                     )
                 }
 
-                if (songs.isEmpty() && selectedTab != 1) {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            "No local music found.",
-                            color = Color.Gray,
-                            fontSize = 16.sp
-                        )
-                    }
-                } else {
-                    when (selectedTab) {
+                HorizontalPager(
+                    state = pagerState,
+                    modifier = Modifier.fillMaxSize()
+                ) { page ->
+                    when (page) {
                         0 -> { // Tracks Tab
                             val filteredSongs = remember(songs, searchQuery) {
                                 if (searchQuery.isBlank()) {
@@ -321,6 +319,15 @@ fun LibraryScreen(
                                     }
                                 }
                             }
+                        }
+                        3 -> { // YouTube Search Tab
+                            YoutubeScreen(
+                                viewModel = viewModel,
+                                onBack = { 
+                                    coroutineScope.launch { pagerState.animateScrollToPage(0) }
+                                },
+                                onSongPlay = onMiniPlayerClick
+                            )
                         }
                     }
                 }

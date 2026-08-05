@@ -341,7 +341,7 @@ class MusicViewModel : ViewModel() {
         )
         // Set the current song value so the Now Playing sheet updates immediately
         _currentSong.value = song
-        playSong(song)
+        playSong(song, listOf(song))
     }
 
     fun refreshSongs(context: Context) {

@@ -101,25 +101,16 @@ class MainActivity : ComponentActivity() {
         setContent {
             MusicPlayerTheme {
                 var showNowPlaying by remember { mutableStateOf(false) }
-                var showYoutubeSearch by remember { mutableStateOf(false) }
 
                 if (isPermissionGranted) {
                     Box(modifier = Modifier.fillMaxSize()) {
-                        if (showYoutubeSearch) {
-                            YoutubeScreen(
-                                viewModel = viewModel,
-                                onBack = { showYoutubeSearch = false }
-                            )
-                        } else {
-                            LibraryScreen(
-                                viewModel = viewModel,
-                                onMiniPlayerClick = { showNowPlaying = true },
-                                onSearchYoutubeClick = { showYoutubeSearch = true }
-                            )
-                        }
+                        LibraryScreen(
+                            viewModel = viewModel,
+                            onMiniPlayerClick = { showNowPlaying = true }
+                        )
 
                         AnimatedVisibility(
-                            visible = showNowPlaying && !showYoutubeSearch,
+                            visible = showNowPlaying,
                             enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
                             exit = slideOutVertically(targetOffsetY = { it }) + fadeOut()
                         ) {
