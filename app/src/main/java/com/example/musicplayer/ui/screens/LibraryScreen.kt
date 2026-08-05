@@ -169,8 +169,8 @@ fun LibraryScreen(
                         onClick = {
                             coroutineScope.launch { pagerState.animateScrollToPage(3) }
                         },
-                        icon = { Icon(Icons.Default.Search, contentDescription = "Search YT") },
-                        text = { Text("Search YT", fontSize = 12.sp, fontWeight = FontWeight.Bold) }
+                        icon = { Icon(Icons.Default.Search, contentDescription = "YT Music") },
+                        text = { Text("YT Music", fontSize = 12.sp, fontWeight = FontWeight.Bold) }
                     )
                     Tab(
                         selected = selectedTab == 4,
@@ -359,7 +359,10 @@ fun LibraryScreen(
                         }
                         4 -> { // YouTube Web Tab
                             YoutubeWebScreen(
-                                viewModel = viewModel
+                                viewModel = viewModel,
+                                onBackToLibrary = {
+                                    coroutineScope.launch { pagerState.animateScrollToPage(0) }
+                                }
                             )
                         }
                     }

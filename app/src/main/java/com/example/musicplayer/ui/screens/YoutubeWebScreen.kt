@@ -29,6 +29,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -70,7 +71,8 @@ private fun isAdHost(urlStr: String): Boolean {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun YoutubeWebScreen(
-    viewModel: MusicViewModel
+    viewModel: MusicViewModel,
+    onBackToLibrary: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
@@ -221,17 +223,30 @@ fun YoutubeWebScreen(
             )
         }
 
-        // Floating Minimal Top Back Navigation Bar
-        if (canGoBack) {
-            Row(
-                modifier = Modifier
-                    .padding(top = 12.dp, start = 12.dp)
-                    .clip(RoundedCornerShape(20.dp))
-                    .background(Color.Black.copy(alpha = 0.75f))
-                    .padding(horizontal = 8.dp, vertical = 4.dp)
-                    .align(Alignment.TopStart),
-                verticalAlignment = Alignment.CenterVertically
+        // Floating Top Back & Home Navigation Bar (Always available for 1-tap Return to Tabs)
+        Row(
+            modifier = Modifier
+                .padding(top = 12.dp, start = 12.dp)
+                .clip(RoundedCornerShape(20.dp))
+                .background(Color.Black.copy(alpha = 0.8f))
+                .padding(horizontal = 8.dp, vertical = 4.dp)
+                .align(Alignment.TopStart),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Return to Tabs / Library Button
+            IconButton(
+                onClick = { onBackToLibrary() },
+                modifier = Modifier.size(36.dp)
             ) {
+                Icon(
+                    Icons.Default.Home,
+                    contentDescription = "Show Tabs / Library",
+                    tint = Color(0xFF1DB954),
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+
+            if (canGoBack) {
                 IconButton(
                     onClick = { webViewInstance?.goBack() },
                     modifier = Modifier.size(36.dp)
@@ -243,52 +258,52 @@ fun YoutubeWebScreen(
                         modifier = Modifier.size(20.dp)
                     )
                 }
-                IconButton(
-                    onClick = { webViewInstance?.reload() },
-                    modifier = Modifier.size(36.dp)
-                ) {
-                    Icon(
-                        Icons.Default.Refresh,
-                        contentDescription = "Refresh",
-                        tint = Color.White,
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
+            }
+            IconButton(
+                onClick = { webViewInstance?.reload() },
+                modifier = Modifier.size(36.dp)
+            ) {
+                Icon(
+                    Icons.Default.Refresh,
+                    contentDescription = "Refresh",
+                    tint = Color.White,
+                    modifier = Modifier.size(20.dp)
+                )
             }
         }
 
-        // Single Clean VidMate-Style Fast Download Button (Bottom Right)
-        Box(
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(end = 16.dp, bottom = 90.dp)
-        ) {
-            ExtendedFloatingActionButton(
-                onClick = {
-                    if (currentVideoId == null) {
-                        Toast.makeText(context, "Play any video on YouTube to download MP3/MP4!", Toast.LENGTH_SHORT).show()
-                    } else if (!isFetchingDownloadOptions) {
-                        isFetchingDownloadOptions = true
-                        showDownloadSheet = true
-                        availableDownloadOptions = emptyList()
-                        YoutubeDownloader.resolveAllDownloadOptions(currentVideoId) { options ->
-                            isFetchingDownloadOptions = false
-                            availableDownloadOptions = options
+        // VidMate-Style Fast Download Button (Shown ONLY when inside a video/details page!)
+        if (currentVideoId != null) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(end = 16.dp, bottom = 90.dp)
+            ) {
+                ExtendedFloatingActionButton(
+                    onClick = {
+                        if (!isFetchingDownloadOptions) {
+                            isFetchingDownloadOptions = true
+                            showDownloadSheet = true
+                            availableDownloadOptions = emptyList()
+                            YoutubeDownloader.resolveAllDownloadOptions(currentVideoId) { options ->
+                                isFetchingDownloadOptions = false
+                                availableDownloadOptions = options
+                            }
                         }
-                    }
-                },
-                icon = {
-                    if (isFetchingDownloadOptions) {
-                        CircularProgressIndicator(modifier = Modifier.size(22.dp), color = Color.Black, strokeWidth = 2.dp)
-                    } else {
-                        Icon(Icons.Default.Download, contentDescription = "Download Options (VidMate)")
-                    }
-                },
-                text = { Text(if (currentVideoId != null) "⚡ Download" else "⚡ Fast Download", fontWeight = FontWeight.Bold) },
-                containerColor = Color(0xFF1DB954),
-                contentColor = Color.Black,
-                shape = RoundedCornerShape(26.dp)
-            )
+                    },
+                    icon = {
+                        if (isFetchingDownloadOptions) {
+                            CircularProgressIndicator(modifier = Modifier.size(22.dp), color = Color.Black, strokeWidth = 2.dp)
+                        } else {
+                            Icon(Icons.Default.Download, contentDescription = "Download Options (VidMate)")
+                        }
+                    },
+                    text = { Text("⚡ Download", fontWeight = FontWeight.Bold) },
+                    containerColor = Color(0xFF1DB954),
+                    contentColor = Color.Black,
+                    shape = RoundedCornerShape(26.dp)
+                )
+            }
         }
 
         // Fullscreen Video View Overlay
