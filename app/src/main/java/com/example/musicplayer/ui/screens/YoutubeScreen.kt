@@ -337,14 +337,14 @@ fun YoutubeScreen(
                         video = video,
                         onDownloadClick = {
                             triggerHaptic(view)
-                            Toast.makeText(context, "Generating download link...", Toast.LENGTH_SHORT).show()
-                            YoutubeDownloader.startAudioDownload(context, video) { success ->
+                            selectedVideoForDownload = video
+                            showDownloadSheet = true
+                            isFetchingOptions = true
+                            availableDownloadOptions = emptyList()
+                            YoutubeDownloader.resolveAllDownloadOptions(video.id) { options ->
                                 coroutineScope.launch(Dispatchers.Main) {
-                                    if (success) {
-                                        Toast.makeText(context, "Download started! Swipe notification panel to view.", Toast.LENGTH_LONG).show()
-                                    } else {
-                                        Toast.makeText(context, "Download failed. Please try another song.", Toast.LENGTH_LONG).show()
-                                    }
+                                    isFetchingOptions = false
+                                    availableDownloadOptions = options
                                 }
                             }
                         },
@@ -367,6 +367,16 @@ fun YoutubeScreen(
                     )
                 }
             }
+        }
+
+        if (showDownloadSheet && selectedVideoForDownload != null) {
+            com.example.musicplayer.ui.components.DownloadOptionsBottomSheet(
+                videoTitle = "${selectedVideoForDownload?.title} - ${selectedVideoForDownload?.artist}",
+                options = availableDownloadOptions,
+                isLoading = isFetchingOptions,
+                onDismiss = { showDownloadSheet = false },
+                coroutineScope = coroutineScope
+            )
         }
     }
 }
