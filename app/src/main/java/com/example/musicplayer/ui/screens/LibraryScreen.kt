@@ -35,6 +35,11 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.Album
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.OndemandVideo
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -73,7 +78,7 @@ fun LibraryScreen(
     val view = LocalView.current
 
     val coroutineScope = rememberCoroutineScope()
-    val pagerState = rememberPagerState(initialPage = 0, pageCount = { 4 })
+    val pagerState = rememberPagerState(initialPage = 0, pageCount = { 5 })
     val selectedTab = pagerState.currentPage
     var selectedAlbumName by remember { mutableStateOf<String?>(null) }
     var selectedPlaylistName by remember { mutableStateOf<String?>(null) }
@@ -95,7 +100,7 @@ fun LibraryScreen(
 
     Scaffold(
         topBar = {
-            if (selectedTab != 3) {
+            if (selectedTab != 3 && selectedTab != 4) {
                 TopAppBar(
                     title = {
                         Text(
@@ -119,40 +124,53 @@ fun LibraryScreen(
                 .padding(paddingValues)
         ) {
             Column(modifier = Modifier.fillMaxSize()) {
-                // Segmented Tabs
-                TabRow(
+                // Segmented Tabs with Beautiful Icons & Labels
+                ScrollableTabRow(
                     selectedTabIndex = selectedTab,
                     containerColor = Color.Black,
                     contentColor = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.padding(bottom = 8.dp)
+                    edgePadding = 12.dp,
+                    modifier = Modifier.padding(bottom = 4.dp)
                 ) {
                     Tab(
                         selected = selectedTab == 0,
                         onClick = {
                             coroutineScope.launch { pagerState.animateScrollToPage(0) }
                         },
-                        text = { Text("Tracks", fontSize = 16.sp, fontWeight = FontWeight.Bold) }
+                        icon = { Icon(Icons.Default.MusicNote, contentDescription = "Tracks") },
+                        text = { Text("Tracks", fontSize = 12.sp, fontWeight = FontWeight.Bold) }
                     )
                     Tab(
                         selected = selectedTab == 1,
                         onClick = {
                             coroutineScope.launch { pagerState.animateScrollToPage(1) }
                         },
-                        text = { Text("Albums", fontSize = 16.sp, fontWeight = FontWeight.Bold) }
+                        icon = { Icon(Icons.Default.Album, contentDescription = "Albums") },
+                        text = { Text("Albums", fontSize = 12.sp, fontWeight = FontWeight.Bold) }
                     )
                     Tab(
                         selected = selectedTab == 2,
                         onClick = {
                             coroutineScope.launch { pagerState.animateScrollToPage(2) }
                         },
-                        text = { Text("Favorites", fontSize = 16.sp, fontWeight = FontWeight.Bold) }
+                        icon = { Icon(Icons.Default.Favorite, contentDescription = "Favorites") },
+                        text = { Text("Favorites", fontSize = 12.sp, fontWeight = FontWeight.Bold) }
                     )
                     Tab(
                         selected = selectedTab == 3,
                         onClick = {
                             coroutineScope.launch { pagerState.animateScrollToPage(3) }
                         },
-                        text = { Text("Search YT", fontSize = 16.sp, fontWeight = FontWeight.Bold) }
+                        icon = { Icon(Icons.Default.Search, contentDescription = "Search YT") },
+                        text = { Text("Search YT", fontSize = 12.sp, fontWeight = FontWeight.Bold) }
+                    )
+                    Tab(
+                        selected = selectedTab == 4,
+                        onClick = {
+                            coroutineScope.launch { pagerState.animateScrollToPage(4) }
+                        },
+                        icon = { Icon(Icons.Default.OndemandVideo, contentDescription = "YouTube") },
+                        text = { Text("YouTube", fontSize = 12.sp, fontWeight = FontWeight.Bold) }
                     )
                 }
 
@@ -327,6 +345,11 @@ fun LibraryScreen(
                                     coroutineScope.launch { pagerState.animateScrollToPage(0) }
                                 },
                                 onSongPlay = onMiniPlayerClick
+                            )
+                        }
+                        4 -> { // YouTube Web Tab
+                            YoutubeWebScreen(
+                                viewModel = viewModel
                             )
                         }
                     }
