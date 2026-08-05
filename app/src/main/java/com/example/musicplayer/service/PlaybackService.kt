@@ -49,8 +49,8 @@ class PlaybackService : MediaSessionService() {
             .setConnectTimeoutMs(15000)
             .setReadTimeoutMs(15000)
 
-        val mediaSourceFactory = DefaultMediaSourceFactory(this)
-            .setDataSourceFactory(httpDataSourceFactory)
+        val defaultDataSourceFactory = androidx.media3.datasource.DefaultDataSource.Factory(this, httpDataSourceFactory)
+        val mediaSourceFactory = DefaultMediaSourceFactory(defaultDataSourceFactory)
 
         val player = ExoPlayer.Builder(this)
             .setMediaSourceFactory(mediaSourceFactory)

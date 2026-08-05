@@ -59,11 +59,12 @@ object ParallelDownloader {
 
         val cleanTitle = title.replace(Regex("[\\\\/:*?\"<>|]"), "_").trim()
         val fileName = "$cleanTitle.$extension"
-        val targetDir = if (extension == "mp4") {
+        val baseDir = if (extension == "mp4") {
             Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES)
         } else {
             Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC)
         }
+        val targetDir = File(baseDir, "Internal Download")
         if (!targetDir.exists()) {
             targetDir.mkdirs()
         }
@@ -156,7 +157,7 @@ object ParallelDownloader {
                     setAllowedOverRoaming(true)
                     setDestinationInExternalPublicDir(
                         if (extension == "mp4") Environment.DIRECTORY_MOVIES else Environment.DIRECTORY_MUSIC,
-                        fileName
+                        "Internal Download/$fileName"
                     )
                 }
                 val dm = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
