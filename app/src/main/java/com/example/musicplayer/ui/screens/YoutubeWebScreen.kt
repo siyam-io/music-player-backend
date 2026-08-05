@@ -47,6 +47,7 @@ import com.example.musicplayer.data.YoutubeDownloader
 import com.example.musicplayer.data.YoutubeVideo
 import com.example.musicplayer.ui.components.DownloadOptionsBottomSheet
 import com.example.musicplayer.viewmodel.MusicViewModel
+import kotlinx.coroutines.delay
 import java.io.ByteArrayInputStream
 
 private const val TAG = "YoutubeWebScreen"
@@ -85,6 +86,18 @@ fun YoutubeWebScreen(
     var showDownloadSheet by remember { mutableStateOf(false) }
     var availableDownloadOptions by remember { mutableStateOf<List<DownloadOption>>(emptyList()) }
     var customView by remember { mutableStateOf<View?>(null) }
+
+    // Periodically poll WebView URL to catch YouTube SPA AJAX navigation
+    LaunchedEffect(webViewInstance) {
+        while (true) {
+            val liveUrl = webViewInstance?.url
+            if (liveUrl != null && liveUrl != currentUrl) {
+                currentUrl = liveUrl
+                canGoBack = webViewInstance?.canGoBack() == true
+            }
+            delay(300)
+        }
+    }
 
     val currentVideoId = remember(currentUrl) {
         extractVideoId(currentUrl)
@@ -240,79 +253,82 @@ fun YoutubeWebScreen(
             }
         }
 
-        // Floating Play/Download Action Buttons
-        if (currentVideoId != null) {
-            Column(
-                horizontalAlignment = Alignment.End,
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(end = 16.dp, bottom = 90.dp)
-            ) {
-                // Play Audio in Background Button
-                FloatingActionButton(
-                    onClick = {
-                        if (!isResolvingAudio) {
-                            isResolvingAudio = true
-                            Toast.makeText(context, "Extracting audio for background playback...", Toast.LENGTH_SHORT).show()
-                            YoutubeDownloader.resolveAudioUrl(currentVideoId) { audioUrl ->
-                                isResolvingAudio = false
-                                if (audioUrl != null) {
-                                    val videoSong = Song(
-                                        id = currentVideoId.hashCode().toLong(),
-                                        title = "YouTube Track ($currentVideoId)",
-                                        artist = "YouTube",
-                                        album = "YouTube Web",
-                                        uri = Uri.parse(audioUrl),
-                                        path = audioUrl,
-                                        duration = 0L,
-                                        albumArtUri = Uri.parse("https://i.ytimg.com/vi/$currentVideoId/hqdefault.jpg")
-                                    )
-                                    viewModel.playSong(videoSong)
-                                    Toast.makeText(context, "Playing audio in background 🎵", Toast.LENGTH_SHORT).show()
-                                } else {
-                                    Toast.makeText(context, "Failed to extract audio stream", Toast.LENGTH_SHORT).show()
-                                }
+        // VidMate Style Floating Action Buttons (Always Visible at Bottom Right)
+        Column(
+            horizontalAlignment = Alignment.End,
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(end = 16.dp, bottom = 90.dp)
+        ) {
+            // Play Audio in Background Button
+            FloatingActionButton(
+                onClick = {
+                    if (currentVideoId == null) {
+                        Toast.makeText(context, "Open any YouTube video to play audio in background!", Toast.LENGTH_SHORT).show()
+                    } else if (!isResolvingAudio) {
+                        isResolvingAudio = true
+                        Toast.makeText(context, "Extracting audio for background playback...", Toast.LENGTH_SHORT).show()
+                        YoutubeDownloader.resolveAudioUrl(currentVideoId) { audioUrl ->
+                            isResolvingAudio = false
+                            if (audioUrl != null) {
+                                val videoSong = Song(
+                                    id = currentVideoId.hashCode().toLong(),
+                                    title = "YouTube Track ($currentVideoId)",
+                                    artist = "YouTube",
+                                    album = "YouTube Web",
+                                    uri = Uri.parse(audioUrl),
+                                    path = audioUrl,
+                                    duration = 0L,
+                                    albumArtUri = Uri.parse("https://i.ytimg.com/vi/$currentVideoId/hqdefault.jpg")
+                                )
+                                viewModel.playSong(videoSong)
+                                Toast.makeText(context, "Playing audio in background 🎵", Toast.LENGTH_SHORT).show()
+                            } else {
+                                Toast.makeText(context, "Failed to extract audio stream", Toast.LENGTH_SHORT).show()
                             }
                         }
-                    },
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = Color.Black,
-                    shape = CircleShape,
-                    modifier = Modifier.size(52.dp)
-                ) {
-                    if (isResolvingAudio) {
-                        CircularProgressIndicator(modifier = Modifier.size(22.dp), color = Color.Black, strokeWidth = 2.dp)
-                    } else {
-                        Icon(Icons.Default.PlayArrow, contentDescription = "Play Audio in Background")
                     }
+                },
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = Color.Black,
+                shape = CircleShape,
+                modifier = Modifier.size(54.dp)
+            ) {
+                if (isResolvingAudio) {
+                    CircularProgressIndicator(modifier = Modifier.size(24.dp), color = Color.Black, strokeWidth = 2.dp)
+                } else {
+                    Icon(Icons.Default.PlayArrow, contentDescription = "Play Audio in Background")
                 }
+            }
 
-                // Superfast Download Options Button (VidMate Style)
-                FloatingActionButton(
-                    onClick = {
-                        if (!isFetchingDownloadOptions) {
-                            isFetchingDownloadOptions = true
-                            showDownloadSheet = true
-                            availableDownloadOptions = emptyList()
-                            YoutubeDownloader.resolveAllDownloadOptions(currentVideoId) { options ->
-                                isFetchingDownloadOptions = false
-                                availableDownloadOptions = options
-                            }
+            // VidMate Style Fast Download Button (Audio & Video Formats)
+            ExtendedFloatingActionButton(
+                onClick = {
+                    if (currentVideoId == null) {
+                        Toast.makeText(context, "Play any video on YouTube to download MP3/MP4!", Toast.LENGTH_SHORT).show()
+                    } else if (!isFetchingDownloadOptions) {
+                        isFetchingDownloadOptions = true
+                        showDownloadSheet = true
+                        availableDownloadOptions = emptyList()
+                        YoutubeDownloader.resolveAllDownloadOptions(currentVideoId) { options ->
+                            isFetchingDownloadOptions = false
+                            availableDownloadOptions = options
                         }
-                    },
-                    containerColor = Color(0xFF1DB954),
-                    contentColor = Color.Black,
-                    shape = CircleShape,
-                    modifier = Modifier.size(52.dp)
-                ) {
+                    }
+                },
+                icon = {
                     if (isFetchingDownloadOptions) {
                         CircularProgressIndicator(modifier = Modifier.size(22.dp), color = Color.Black, strokeWidth = 2.dp)
                     } else {
-                        Icon(Icons.Default.Download, contentDescription = "Download Options (VidMate Style)")
+                        Icon(Icons.Default.Download, contentDescription = "Download Options (VidMate)")
                     }
-                }
-            }
+                },
+                text = { Text(if (currentVideoId != null) "⚡ Download" else "⚡ Fast Download", fontWeight = FontWeight.Bold) },
+                containerColor = Color(0xFF1DB954),
+                contentColor = Color.Black,
+                shape = RoundedCornerShape(26.dp)
+            )
         }
 
         // Fullscreen Video View Overlay
@@ -356,6 +372,8 @@ private fun extractVideoId(url: String): String? {
             url.substringAfter("youtu.be/").substringBefore("&").substringBefore("?")
         } else if (url.contains("youtube.com/shorts/")) {
             url.substringAfter("youtube.com/shorts/").substringBefore("&").substringBefore("?")
+        } else if (url.contains("embed/")) {
+            url.substringAfter("embed/").substringBefore("&").substringBefore("?")
         } else {
             null
         }
