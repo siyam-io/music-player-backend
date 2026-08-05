@@ -1,6 +1,7 @@
 import http.server
 import json
 import urllib.parse
+import urllib.request
 import sys
 import subprocess
 
@@ -32,7 +33,6 @@ class DownloaderHandler(http.server.BaseHTTPRequestHandler):
             if range_header:
                 req_headers['Range'] = range_header
 
-            import urllib.request
             try:
                 req = urllib.request.Request(stream_url, headers=req_headers)
                 with urllib.request.urlopen(req, timeout=30) as resp:
