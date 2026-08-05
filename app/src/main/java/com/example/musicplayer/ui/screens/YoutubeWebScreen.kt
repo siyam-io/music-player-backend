@@ -277,7 +277,7 @@ fun YoutubeWebScreen(
             Box(
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
-                    .padding(end = 16.dp, bottom = 90.dp)
+                    .padding(end = 16.dp, bottom = 24.dp)
             ) {
                 ExtendedFloatingActionButton(
                     onClick = {

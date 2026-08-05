@@ -369,9 +369,9 @@ fun LibraryScreen(
                 }
             }
 
-            // Glassy Mini Player
+            // Glassy Mini Player (Hidden on YouTube Web Tab for 100% Fullscreen)
             AnimatedVisibility(
-                visible = currentSong != null,
+                visible = currentSong != null && selectedTab != 4,
                 enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
                 exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(),
                 modifier = Modifier
@@ -414,6 +414,10 @@ fun LibraryScreen(
                          onSongClick = { song ->
                              triggerHaptic(view)
                              viewModel.playSong(song, albumSongs)
+                         },
+                         onSongMoreClick = { song ->
+                             triggerHaptic(view)
+                             songForPlaylistDialog = song
                          },
                          onClose = {
                              triggerHaptic(view)
@@ -777,6 +781,7 @@ fun AlbumDetailsView(
     onDeletePlaylist: (() -> Unit)? = null,
     onRemoveSong: ((Song) -> Unit)? = null,
     onSongClick: (Song) -> Unit,
+    onSongMoreClick: ((Song) -> Unit)? = null,
     onClose: () -> Unit
 ) {
     val view = LocalView.current
@@ -849,9 +854,11 @@ fun AlbumDetailsView(
                             isSelected = currentSong?.id == song.id,
                             onClick = { onSongClick(song) },
                             onMoreClick = {
+                                triggerHaptic(view)
                                 if (isCustomPlaylist && onRemoveSong != null) {
-                                    triggerHaptic(view)
                                     onRemoveSong(song)
+                                } else if (onSongMoreClick != null) {
+                                    onSongMoreClick(song)
                                 }
                             },
                             showRemoveIcon = isCustomPlaylist

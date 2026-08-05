@@ -164,17 +164,23 @@ class MainActivity : ComponentActivity() {
                 val file = File(filePath)
                 if (file.exists()) {
                     viewModel.refreshSongs(applicationContext)
-                    val downloadedSong = Song(
-                        id = filePath.hashCode().toLong(),
-                        title = title,
-                        artist = "Downloaded",
-                        album = "Downloads",
-                        uri = Uri.fromFile(file),
-                        path = filePath,
-                        duration = 0L,
-                        albumArtUri = null
-                    )
-                    viewModel.playSong(downloadedSong)
+                    val allSongs = viewModel.songs.value
+                    val matchedSong = allSongs.find { it.path == filePath || it.title.equals(title, ignoreCase = true) }
+                    if (matchedSong != null) {
+                        viewModel.playSong(matchedSong, allSongs)
+                    } else {
+                        val downloadedSong = Song(
+                            id = filePath.hashCode().toLong(),
+                            title = title,
+                            artist = "Internal Download",
+                            album = "Internal Download",
+                            uri = Uri.fromFile(file),
+                            path = filePath,
+                            duration = 0L,
+                            albumArtUri = null
+                        )
+                        viewModel.playSong(downloadedSong, listOf(downloadedSong))
+                    }
                     Toast.makeText(applicationContext, "Playing $title 🎵", Toast.LENGTH_SHORT).show()
                 }
             }
