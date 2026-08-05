@@ -1,8 +1,11 @@
 package com.example.musicplayer.data
 
+import android.app.DownloadManager
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
+import android.media.MediaScannerConnection
+import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.util.Log
@@ -49,6 +52,7 @@ object ParallelDownloader {
         val notificationId = (System.currentTimeMillis() % 10000).toInt()
         createNotificationChannel(context)
         val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
 
         val cleanTitle = title.replace(Regex("[\\\\/:*?\"<>|]"), "_").trim()
         val fileName = "$cleanTitle.$extension"
@@ -67,7 +71,7 @@ object ParallelDownloader {
             .setContentText("Connecting to 8 parallel streams...")
             .setSmallIcon(android.R.drawable.stat_sys_download)
             .setOngoing(true)
-            .setProgress(100, 0, true)
+            .setProgress(100, 0, false)
 
         notificationManager.notify(notificationId, builder.build())
 
@@ -87,12 +91,19 @@ object ParallelDownloader {
             Log.d(TAG, "Content-Length: $contentLength bytes, Supports Ranges: $supportsRanges")
 
             if (!supportsRanges || contentLength < 500_000) {
-                // Fallback to single stream fast download
                 downloadSingleThread(urlStr, outputFile, builder, notificationManager, notificationId, contentLength, onProgress)
             } else {
-                // High-Speed 8-Parallel Threads Chunk Downloader
                 downloadParallel(urlStr, outputFile, contentLength, builder, notificationManager, notificationId, onProgress)
             }
+
+            // Scan file so Android System MediaStore indexes it immediately
+            val mimeType = if (extension == "mp4") "video/mp4" else "audio/mpeg"
+            MediaScannerConnection.scanFile(
+                context,
+                arrayOf(outputFile.absolutePath),
+                arrayOf(mimeType),
+                null
+            )
 
             // Success Notification
             val doneBuilder = NotificationCompat.Builder(context, CHANNEL_ID)
@@ -102,25 +113,46 @@ object ParallelDownloader {
                 .setOngoing(false)
                 .setProgress(0, 0, false)
 
-            val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
             notificationManager.notify(notificationId, doneBuilder.build())
             mainHandler.post {
                 onComplete(true, outputFile)
             }
 
         } catch (e: Exception) {
-            Log.e(TAG, "Parallel download failed for $title", e)
-            val failBuilder = NotificationCompat.Builder(context, CHANNEL_ID)
-                .setContentTitle("❌ Download Failed")
-                .setContentText(e.message ?: "Network error")
-                .setSmallIcon(android.R.drawable.stat_notify_error)
-                .setOngoing(false)
-                .setProgress(0, 0, false)
+            Log.e(TAG, "Parallel download failed, falling back to System DownloadManager", e)
+            try {
+                // Fallback to System DownloadManager
+                val dmRequest = DownloadManager.Request(Uri.parse(urlStr)).apply {
+                    setTitle(cleanTitle)
+                    setDescription("Downloading from YouTube")
+                    setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                    setAllowedOverMetered(true)
+                    setAllowedOverRoaming(true)
+                    setDestinationInExternalPublicDir(
+                        if (extension == "mp4") Environment.DIRECTORY_MOVIES else Environment.DIRECTORY_MUSIC,
+                        fileName
+                    )
+                }
+                val dm = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+                dm.enqueue(dmRequest)
 
-            notificationManager.notify(notificationId, failBuilder.build())
-            val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
-            mainHandler.post {
-                onComplete(false, null)
+                notificationManager.cancel(notificationId)
+                mainHandler.post {
+                    onComplete(true, outputFile)
+                }
+            } catch (fallbackErr: Exception) {
+                Log.e(TAG, "System DownloadManager fallback failed", fallbackErr)
+                val failBuilder = NotificationCompat.Builder(context, CHANNEL_ID)
+                    .setContentTitle("❌ Download Failed")
+                    .setContentText(e.message ?: "Network error")
+                    .setSmallIcon(android.R.drawable.stat_notify_error)
+                    .setOngoing(false)
+                    .setProgress(0, 0, false)
+
+                notificationManager.notify(notificationId, failBuilder.build())
+                mainHandler.post {
+                    onComplete(false, null)
+                }
             }
         }
     }
@@ -139,6 +171,7 @@ object ParallelDownloader {
         raf.close()
 
         val downloadedBytes = AtomicLong(0)
+        val lastNotifyTime = AtomicLong(0)
         val chunkSize = totalBytes / THREAD_COUNT
         val startTime = System.currentTimeMillis()
 
@@ -154,28 +187,32 @@ object ParallelDownloader {
                     conn.requestMethod = "GET"
                     conn.setRequestProperty("Range", "bytes=$startByte-$endByte")
                     conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
-                    conn.connectTimeout = 10000
-                    conn.readTimeout = 10000
+                    conn.connectTimeout = 12000
+                    conn.readTimeout = 12000
 
                     val inputStream = conn.inputStream
                     val partRaf = RandomAccessFile(outputFile, "rw")
                     partRaf.seek(startByte)
 
-                    val buffer = ByteArray(32 * 1024) // 32KB buffer for speed
+                    val buffer = ByteArray(64 * 1024) // 64KB buffer
                     var bytesRead: Int
                     while (inputStream.read(buffer).also { bytesRead = it } != -1) {
                         partRaf.write(buffer, 0, bytesRead)
                         val total = downloadedBytes.addAndGet(bytesRead.toLong())
 
-                        val percent = ((total * 100) / totalBytes).toInt().coerceIn(0, 100)
-                        val elapsedTime = (System.currentTimeMillis() - startTime) / 1000.0
-                        val speedMBs = if (elapsedTime > 0) (total / (1024.0 * 1024.0 * elapsedTime)) else 0.0
-                        val speedStr = String.format("%.1f MB/s", speedMBs)
+                        val now = System.currentTimeMillis()
+                        if (now - lastNotifyTime.get() > 500 || total >= totalBytes) {
+                            lastNotifyTime.set(now)
+                            val percent = ((total * 100) / totalBytes).toInt().coerceIn(0, 100)
+                            val elapsedTime = (now - startTime) / 1000.0
+                            val speedMBs = if (elapsedTime > 0) (total / (1024.0 * 1024.0 * elapsedTime)) else 0.0
+                            val speedStr = String.format("%.1f MB/s", speedMBs)
 
-                        builder.setContentText("⚡ $speedStr | $percent%")
-                            .setProgress(100, percent, false)
-                        manager.notify(notificationId, builder.build())
-                        onProgress(percent, speedStr)
+                            builder.setContentText("⚡ $speedStr | $percent%")
+                                .setProgress(100, percent, false)
+                            manager.notify(notificationId, builder.build())
+                            onProgress(percent, speedStr)
+                        }
                     }
 
                     partRaf.close()
@@ -205,23 +242,26 @@ object ParallelDownloader {
         val conn = url.openConnection() as HttpURLConnection
         conn.requestMethod = "GET"
         conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
-        conn.connectTimeout = 10000
-        conn.readTimeout = 10000
+        conn.connectTimeout = 12000
+        conn.readTimeout = 12000
 
         val inputStream = conn.inputStream
         val outputStream = outputFile.outputStream()
-        val buffer = ByteArray(32 * 1024)
+        val buffer = ByteArray(64 * 1024)
         var bytesRead: Int
         var downloaded = 0L
         val startTime = System.currentTimeMillis()
+        var lastNotifyTime = 0L
 
         while (inputStream.read(buffer).also { bytesRead = it } != -1) {
             outputStream.write(buffer, 0, bytesRead)
             downloaded += bytesRead
 
-            if (totalBytes > 0) {
+            val now = System.currentTimeMillis()
+            if (now - lastNotifyTime > 500 && totalBytes > 0) {
+                lastNotifyTime = now
                 val percent = ((downloaded * 100) / totalBytes).toInt().coerceIn(0, 100)
-                val elapsedTime = (System.currentTimeMillis() - startTime) / 1000.0
+                val elapsedTime = (now - startTime) / 1000.0
                 val speedMBs = if (elapsedTime > 0) (downloaded / (1024.0 * 1024.0 * elapsedTime)) else 0.0
                 val speedStr = String.format("%.1f MB/s", speedMBs)
 

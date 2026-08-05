@@ -131,14 +131,15 @@ fun LibraryScreen(
                 .padding(paddingValues)
         ) {
             Column(modifier = Modifier.fillMaxSize()) {
-                // Segmented Tabs with Beautiful Icons & Labels
-                ScrollableTabRow(
-                    selectedTabIndex = selectedTab,
-                    containerColor = Color.Black,
-                    contentColor = MaterialTheme.colorScheme.primary,
-                    edgePadding = 12.dp,
-                    modifier = Modifier.padding(bottom = 4.dp)
-                ) {
+                // Segmented Tabs with Beautiful Icons & Labels (Hidden on YouTube Web Tab for 100% Fullscreen)
+                if (selectedTab != 4) {
+                    ScrollableTabRow(
+                        selectedTabIndex = selectedTab,
+                        containerColor = Color.Black,
+                        contentColor = MaterialTheme.colorScheme.primary,
+                        edgePadding = 12.dp,
+                        modifier = Modifier.padding(bottom = 4.dp)
+                    ) {
                     Tab(
                         selected = selectedTab == 0,
                         onClick = {
@@ -180,6 +181,7 @@ fun LibraryScreen(
                         text = { Text("YouTube", fontSize = 12.sp, fontWeight = FontWeight.Bold) }
                     )
                 }
+            }
 
                 HorizontalPager(
                     state = pagerState,
