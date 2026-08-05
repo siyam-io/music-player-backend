@@ -100,12 +100,19 @@ fun LibraryScreen(
 
     Scaffold(
         topBar = {
-            if (selectedTab != 3 && selectedTab != 4) {
+            if (selectedTab != 4) {
+                val tabHeading = when (selectedTab) {
+                    0 -> "My Tracks"
+                    1 -> "Albums"
+                    2 -> "Favorites"
+                    3 -> "YT Search"
+                    else -> "Music Library"
+                }
                 TopAppBar(
                     title = {
                         Text(
-                            "Library",
-                            fontSize = 32.sp,
+                            tabHeading,
+                            fontSize = 28.sp,
                             fontWeight = FontWeight.Bold,
                             color = Color.White
                         )

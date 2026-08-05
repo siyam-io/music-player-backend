@@ -5,22 +5,27 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.net.Uri
 import android.util.Log
+import android.view.View
 import android.view.ViewGroup
 import android.webkit.CookieManager
 import android.webkit.WebChromeClient
+import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.widget.FrameLayout
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.PlayArrow
@@ -40,8 +45,27 @@ import com.example.musicplayer.data.Song
 import com.example.musicplayer.data.YoutubeDownloader
 import com.example.musicplayer.data.YoutubeVideo
 import com.example.musicplayer.viewmodel.MusicViewModel
+import java.io.ByteArrayInputStream
 
 private const val TAG = "YoutubeWebScreen"
+
+private val AD_HOSTS = setOf(
+    "googleads.g.doubleclick.net",
+    "pubads.g.doubleclick.net",
+    "pagead2.googlesyndication.com",
+    "googleadservices.com",
+    "static.doubleclick.net",
+    "adservice.google.com"
+)
+
+private fun isAdHost(urlStr: String): Boolean {
+    return try {
+        val host = Uri.parse(urlStr).host?.lowercase() ?: return false
+        AD_HOSTS.any { host == it || host.endsWith(".$it") } || urlStr.contains("/pagead/")
+    } catch (e: Exception) {
+        false
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -55,197 +79,265 @@ fun YoutubeWebScreen(
     var isLoading by remember { mutableStateOf(false) }
     var isResolvingAudio by remember { mutableStateOf(false) }
     var isDownloading by remember { mutableStateOf(false) }
+    var customView by remember { mutableStateOf<View?>(null) }
 
     val currentVideoId = remember(currentUrl) {
         extractVideoId(currentUrl)
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = {
-                    Column {
-                        Text(
-                            "YouTube Web",
-                            fontSize = 20.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White
-                        )
-                        Text(
-                            if (currentVideoId != null) "Video Detected - Ready to Play/Download" else "Browse YouTube & Sign In",
-                            fontSize = 12.sp,
-                            color = if (currentVideoId != null) MaterialTheme.colorScheme.primary else Color.Gray
-                        )
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black)
+    ) {
+        // 100% Fullscreen Web View Container
+        AndroidView(
+            factory = { ctx ->
+                WebView(ctx).apply {
+                    layoutParams = ViewGroup.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.MATCH_PARENT
+                    )
+                    
+                    @SuppressLint("SetJavaScriptEnabled")
+                    settings.apply {
+                        javaScriptEnabled = true
+                        domStorageEnabled = true
+                        databaseEnabled = true
+                        useWideViewPort = true
+                        loadWithOverviewMode = true
+                        mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+                        // Desktop/Mobile Safari User-Agent to allow Google Sign-In seamlessly
+                        userAgentString = "Mozilla/5.0 (Linux; Android 12; Pixel 6 Build/SQ3A.220705.004; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/120.0.6099.210 Mobile Safari/537.36"
                     }
-                },
-                navigationIcon = {
-                    if (canGoBack) {
-                        IconButton(onClick = { webViewInstance?.goBack() }) {
-                            Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = Color.White)
+
+                    val cookieManager = CookieManager.getInstance()
+                    cookieManager.setAcceptCookie(true)
+                    cookieManager.setAcceptThirdPartyCookies(this, true)
+
+                    webViewClient = object : WebViewClient() {
+                        override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {
+                            val reqUrl = request?.url?.toString() ?: ""
+                            if (isAdHost(reqUrl)) {
+                                return WebResourceResponse("text/plain", "UTF-8", ByteArrayInputStream(ByteArray(0)))
+                            }
+                            return super.shouldInterceptRequest(view, request)
+                        }
+
+                        override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
+                            super.onPageStarted(view, url, favicon)
+                            isLoading = true
+                            if (url != null) {
+                                currentUrl = url
+                            }
+                            canGoBack = canGoBack()
+                        }
+
+                        override fun onPageFinished(view: WebView?, url: String?) {
+                            super.onPageFinished(view, url)
+                            isLoading = false
+                            if (url != null) {
+                                currentUrl = url
+                            }
+                            canGoBack = canGoBack()
+
+                            // Built-in AdBlocker + Auto-Skip Video Ads Script
+                            val adBlockJs = """
+                                (function() {
+                                    var css = '.ytp-ad-overlay-container, .ytp-ad-message-container, .video-ads, .ytp-ad-module, ytd-ad-slot-renderer, #player-ads, .ad-showing, .ad-interrupting { display: none !important; }';
+                                    var style = document.createElement('style');
+                                    style.type = 'text/css';
+                                    style.appendChild(document.createTextNode(css));
+                                    (document.head || document.documentElement).appendChild(style);
+
+                                    setInterval(function() {
+                                        var skipBtn = document.querySelector('.ytp-ad-skip-button, .ytp-ad-skip-button-modern, .ytp-skip-ad-button, .ytp-ad-skip-button-slot');
+                                        if (skipBtn) {
+                                            skipBtn.click();
+                                        }
+                                        var adVideo = document.querySelector('.ad-showing video');
+                                        if (adVideo && !isNaN(adVideo.duration)) {
+                                            adVideo.currentTime = adVideo.duration;
+                                        }
+                                    }, 400);
+                                })();
+                            """.trimIndent()
+
+                            view?.evaluateJavascript(adBlockJs, null)
                         }
                     }
-                },
-                actions = {
-                    IconButton(onClick = { webViewInstance?.reload() }) {
-                        Icon(Icons.Default.Refresh, contentDescription = "Refresh", tint = Color.White)
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Black)
-            )
-        },
-        floatingActionButton = {
-            if (currentVideoId != null) {
-                Column(
-                    horizontalAlignment = Alignment.End,
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                    modifier = Modifier.padding(bottom = 60.dp)
-                ) {
-                    // Play Audio in Background Button
-                    ExtendedFloatingActionButton(
-                        onClick = {
-                            if (!isResolvingAudio) {
-                                isResolvingAudio = true
-                                Toast.makeText(context, "Resolving audio for background play...", Toast.LENGTH_SHORT).show()
-                                YoutubeDownloader.resolveAudioUrl(currentVideoId) { audioUrl ->
-                                    isResolvingAudio = false
-                                    if (audioUrl != null) {
-                                        val videoSong = Song(
-                                            id = currentVideoId.hashCode().toLong(),
-                                            title = "YouTube Track ($currentVideoId)",
-                                            artist = "YouTube",
-                                            album = "YouTube Web",
-                                            uri = Uri.parse(audioUrl),
-                                            path = audioUrl,
-                                            duration = 0L,
-                                            albumArtUri = Uri.parse("https://i.ytimg.com/vi/$currentVideoId/hqdefault.jpg")
-                                        )
-                                        viewModel.playSong(videoSong)
-                                        Toast.makeText(context, "Playing audio in background 🎵", Toast.LENGTH_SHORT).show()
-                                    } else {
-                                        Toast.makeText(context, "Failed to extract audio stream", Toast.LENGTH_SHORT).show()
-                                    }
-                                }
-                            }
-                        },
-                        icon = {
-                            if (isResolvingAudio) {
-                                CircularProgressIndicator(modifier = Modifier.size(24.dp), color = Color.White, strokeWidth = 2.dp)
-                            } else {
-                                Icon(Icons.Default.PlayArrow, contentDescription = "Play Audio")
-                            }
-                        },
-                        text = { Text(if (isResolvingAudio) "Resolving..." else "Play Audio") },
-                        containerColor = MaterialTheme.colorScheme.primary,
-                        contentColor = Color.Black
-                    )
 
-                    // Download MP3 Button
-                    ExtendedFloatingActionButton(
-                        onClick = {
-                            if (!isDownloading) {
-                                isDownloading = true
-                                Toast.makeText(context, "Preparing MP3 download...", Toast.LENGTH_SHORT).show()
-                                val ytVideo = YoutubeVideo(
-                                    id = currentVideoId,
-                                    title = "YouTube Track $currentVideoId",
-                                    artist = "YouTube",
-                                    durationText = "00:00",
-                                    thumbnail = "https://i.ytimg.com/vi/$currentVideoId/hqdefault.jpg"
-                                )
-                                YoutubeDownloader.startAudioDownload(context, ytVideo) { success ->
-                                    isDownloading = false
-                                    if (success) {
-                                        Toast.makeText(context, "MP3 Download Started! Check Notifications", Toast.LENGTH_LONG).show()
-                                    } else {
-                                        Toast.makeText(context, "Download failed", Toast.LENGTH_SHORT).show()
-                                    }
-                                }
-                            }
-                        },
-                        icon = {
-                            if (isDownloading) {
-                                CircularProgressIndicator(modifier = Modifier.size(24.dp), color = Color.Black, strokeWidth = 2.dp)
-                            } else {
-                                Icon(Icons.Default.Download, contentDescription = "Download MP3")
-                            }
-                        },
-                        text = { Text("Download MP3") },
-                        containerColor = Color(0xFF1DB954),
-                        contentColor = Color.Black
+                    webChromeClient = object : WebChromeClient() {
+                        override fun onShowCustomView(view: View?, callback: CustomViewCallback?) {
+                            super.onShowCustomView(view, callback)
+                            customView = view
+                        }
+
+                        override fun onHideCustomView() {
+                            super.onHideCustomView()
+                            customView = null
+                        }
+                    }
+
+                    loadUrl("https://m.youtube.com")
+                    webViewInstance = this
+                }
+            },
+            update = { webView ->
+                webViewInstance = webView
+            },
+            modifier = Modifier.fillMaxSize()
+        )
+
+        // Loading Bar
+        if (isLoading) {
+            LinearProgressIndicator(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .align(Alignment.TopCenter),
+                color = MaterialTheme.colorScheme.primary
+            )
+        }
+
+        // Floating Minimal Top Back Navigation Bar
+        if (canGoBack) {
+            Row(
+                modifier = Modifier
+                    .padding(top = 12.dp, start = 12.dp)
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(Color.Black.copy(alpha = 0.75f))
+                    .padding(horizontal = 8.dp, vertical = 4.dp)
+                    .align(Alignment.TopStart),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(
+                    onClick = { webViewInstance?.goBack() },
+                    modifier = Modifier.size(36.dp)
+                ) {
+                    Icon(
+                        Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "Back",
+                        tint = Color.White,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+                IconButton(
+                    onClick = { webViewInstance?.reload() },
+                    modifier = Modifier.size(36.dp)
+                ) {
+                    Icon(
+                        Icons.Default.Refresh,
+                        contentDescription = "Refresh",
+                        tint = Color.White,
+                        modifier = Modifier.size(20.dp)
                     )
                 }
             }
-        },
-        containerColor = Color.Black
-    ) { paddingValues ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(paddingValues)
-        ) {
+        }
+
+        // Floating Play/Download Action Buttons
+        if (currentVideoId != null) {
+            Column(
+                horizontalAlignment = Alignment.End,
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(end = 16.dp, bottom = 90.dp)
+            ) {
+                // Play Audio in Background Button
+                FloatingActionButton(
+                    onClick = {
+                        if (!isResolvingAudio) {
+                            isResolvingAudio = true
+                            Toast.makeText(context, "Extracting audio for background playback...", Toast.LENGTH_SHORT).show()
+                            YoutubeDownloader.resolveAudioUrl(currentVideoId) { audioUrl ->
+                                isResolvingAudio = false
+                                if (audioUrl != null) {
+                                    val videoSong = Song(
+                                        id = currentVideoId.hashCode().toLong(),
+                                        title = "YouTube Track ($currentVideoId)",
+                                        artist = "YouTube",
+                                        album = "YouTube Web",
+                                        uri = Uri.parse(audioUrl),
+                                        path = audioUrl,
+                                        duration = 0L,
+                                        albumArtUri = Uri.parse("https://i.ytimg.com/vi/$currentVideoId/hqdefault.jpg")
+                                    )
+                                    viewModel.playSong(videoSong)
+                                    Toast.makeText(context, "Playing audio in background 🎵", Toast.LENGTH_SHORT).show()
+                                } else {
+                                    Toast.makeText(context, "Failed to extract audio stream", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        }
+                    },
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = Color.Black,
+                    shape = CircleShape,
+                    modifier = Modifier.size(52.dp)
+                ) {
+                    if (isResolvingAudio) {
+                        CircularProgressIndicator(modifier = Modifier.size(22.dp), color = Color.Black, strokeWidth = 2.dp)
+                    } else {
+                        Icon(Icons.Default.PlayArrow, contentDescription = "Play Audio in Background")
+                    }
+                }
+
+                // Download MP3 Button
+                FloatingActionButton(
+                    onClick = {
+                        if (!isDownloading) {
+                            isDownloading = true
+                            Toast.makeText(context, "Preparing MP3 download...", Toast.LENGTH_SHORT).show()
+                            val ytVideo = YoutubeVideo(
+                                id = currentVideoId,
+                                title = "YouTube Track $currentVideoId",
+                                artist = "YouTube",
+                                durationText = "00:00",
+                                thumbnail = "https://i.ytimg.com/vi/$currentVideoId/hqdefault.jpg"
+                            )
+                            YoutubeDownloader.startAudioDownload(context, ytVideo) { success ->
+                                isDownloading = false
+                                if (success) {
+                                    Toast.makeText(context, "MP3 Download Started! Check Notifications", Toast.LENGTH_LONG).show()
+                                } else {
+                                    Toast.makeText(context, "Download failed", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        }
+                    },
+                    containerColor = Color(0xFF1DB954),
+                    contentColor = Color.Black,
+                    shape = CircleShape,
+                    modifier = Modifier.size(52.dp)
+                ) {
+                    if (isDownloading) {
+                        CircularProgressIndicator(modifier = Modifier.size(22.dp), color = Color.Black, strokeWidth = 2.dp)
+                    } else {
+                        Icon(Icons.Default.Download, contentDescription = "Download MP3")
+                    }
+                }
+            }
+        }
+
+        // Fullscreen Video View Overlay
+        if (customView != null) {
             AndroidView(
-                factory = { ctx ->
-                    WebView(ctx).apply {
-                        layoutParams = ViewGroup.LayoutParams(
-                            ViewGroup.LayoutParams.MATCH_PARENT,
-                            ViewGroup.LayoutParams.MATCH_PARENT
+                factory = {
+                    FrameLayout(it).apply {
+                        addView(
+                            customView,
+                            ViewGroup.LayoutParams(
+                                ViewGroup.LayoutParams.MATCH_PARENT,
+                                ViewGroup.LayoutParams.MATCH_PARENT
+                            )
                         )
-                        
-                        @SuppressLint("SetJavaScriptEnabled")
-                        settings.apply {
-                            javaScriptEnabled = true
-                            domStorageEnabled = true
-                            databaseEnabled = true
-                            useWideViewPort = true
-                            loadWithOverviewMode = true
-                            mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
-                            // Chrome desktop/mobile User-Agent to allow Google Account Sign-In without browser restriction block
-                            userAgentString = "Mozilla/5.0 (Linux; Android 12; Pixel 6 Build/SQ3A.220705.004; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/120.0.6099.210 Mobile Safari/537.36"
-                        }
-
-                        val cookieManager = CookieManager.getInstance()
-                        cookieManager.setAcceptCookie(true)
-                        cookieManager.setAcceptThirdPartyCookies(this, true)
-
-                        webViewClient = object : WebViewClient() {
-                            override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
-                                super.onPageStarted(view, url, favicon)
-                                isLoading = true
-                                if (url != null) {
-                                    currentUrl = url
-                                }
-                                canGoBack = canGoBack()
-                            }
-
-                            override fun onPageFinished(view: WebView?, url: String?) {
-                                super.onPageFinished(view, url)
-                                isLoading = false
-                                if (url != null) {
-                                    currentUrl = url
-                                }
-                                canGoBack = canGoBack()
-                            }
-                        }
-
-                        webChromeClient = WebChromeClient()
-                        loadUrl("https://m.youtube.com")
-                        webViewInstance = this
                     }
                 },
-                update = { webView ->
-                    webViewInstance = webView
-                },
-                modifier = Modifier.fillMaxSize()
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black)
             )
-
-            if (isLoading) {
-                LinearProgressIndicator(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .align(Alignment.TopCenter),
-                    color = MaterialTheme.colorScheme.primary
-                )
-            }
         }
     }
 }
