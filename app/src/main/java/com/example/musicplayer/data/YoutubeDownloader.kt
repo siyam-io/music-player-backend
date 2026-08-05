@@ -52,8 +52,8 @@ object YoutubeDownloader {
             val url = URL(serverUrl)
             val connection = url.openConnection() as HttpURLConnection
             connection.requestMethod = "GET"
-            connection.connectTimeout = 10000
-            connection.readTimeout = 15000
+            connection.connectTimeout = 15000
+            connection.readTimeout = 25000
             
             if (connection.responseCode == 200) {
                 val reader = BufferedReader(InputStreamReader(connection.inputStream))

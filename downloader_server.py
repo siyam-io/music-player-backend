@@ -143,54 +143,47 @@ class DownloaderHandler(http.server.BaseHTTPRequestHandler):
         return None
 
     def search_youtube(self, query_str):
-        client_options = [
-            ["--extractor-args", "youtube:player_client=android,mweb"],
-            ["--extractor-args", "youtube:player_client=tv_embedded,web_creator"],
-            []
+        cmd = [
+            sys.executable, "-m", "yt_dlp",
+            f"ytsearch10:{query_str}",
+            "--dump-json",
+            "--flat-playlist",
+            "--no-check-certificates",
+            "--no-warnings"
         ]
-        for client_args in client_options:
-            try:
-                cmd = [
-                    sys.executable, "-m", "yt_dlp",
-                    f"ytsearch10:{query_str}",
-                    "--dump-json",
-                    "--flat-playlist",
-                    "--no-check-certificates",
-                    "--no-warnings"
-                ] + client_args
-                
-                result = subprocess.run(cmd, capture_output=True, text=True, timeout=25)
-                if result.returncode == 0 and result.stdout.strip():
-                    lines = result.stdout.strip().split('\n')
-                    results = []
-                    for line in lines:
-                        if not line:
-                            continue
-                        try:
-                            data = json.loads(line)
-                            duration = data.get("duration", 0) or 0
-                            minutes = int(duration // 60)
-                            seconds = int(duration % 60)
-                            duration_text = f"{minutes:02d}:{seconds:02d}"
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+            if result.returncode == 0 and result.stdout.strip():
+                lines = result.stdout.strip().split('\n')
+                results = []
+                for line in lines:
+                    if not line:
+                        continue
+                    try:
+                        data = json.loads(line)
+                        duration = data.get("duration", 0) or 0
+                        minutes = int(duration // 60)
+                        seconds = int(duration % 60)
+                        duration_text = f"{minutes:02d}:{seconds:02d}"
+                        
+                        thumbnails = data.get("thumbnails", [])
+                        thumbnail_url = ""
+                        if thumbnails:
+                            thumbnail_url = thumbnails[0].get("url", "")
                             
-                            thumbnails = data.get("thumbnails", [])
-                            thumbnail_url = ""
-                            if thumbnails:
-                                thumbnail_url = thumbnails[0].get("url", "")
-                                
-                            results.append({
-                                "id": data.get("id", ""),
-                                "title": data.get("title", ""),
-                                "artist": data.get("uploader", "Unknown Artist"),
-                                "durationText": duration_text,
-                                "thumbnail": thumbnail_url
-                            })
-                        except Exception:
-                            continue
-                    if results:
-                        return results
-            except Exception as e:
-                print(f"[Server] Search iteration error: {e}", flush=True)
+                        results.append({
+                            "id": data.get("id", ""),
+                            "title": data.get("title", ""),
+                            "artist": data.get("uploader", "Unknown Artist"),
+                            "durationText": duration_text,
+                            "thumbnail": thumbnail_url
+                        })
+                    except Exception:
+                        continue
+                if results:
+                    return results
+        except Exception as e:
+            print(f"[Server] Search error: {e}", flush=True)
         return []
 
 def run():
