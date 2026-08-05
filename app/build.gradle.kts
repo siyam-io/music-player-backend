@@ -68,4 +68,7 @@ dependencies {
     // Media3 (ExoPlayer & MediaSession)
     implementation(libs.media3.exoplayer)
     implementation(libs.media3.session)
+
+    // NewPipeExtractor for direct client-side YouTube extraction
+    implementation("com.github.TeamNewPipe:NewPipeExtractor:v0.24.3")
 }
