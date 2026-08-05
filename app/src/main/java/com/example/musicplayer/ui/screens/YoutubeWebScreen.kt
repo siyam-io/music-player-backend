@@ -1,7 +1,9 @@
 package com.example.musicplayer.ui.screens
 
 import android.annotation.SuppressLint
+import android.app.Activity
 import android.content.Context
+import android.content.pm.ActivityInfo
 import android.graphics.Bitmap
 import android.net.Uri
 import android.util.Log
@@ -43,7 +45,6 @@ import com.example.musicplayer.data.DownloadOption
 import com.example.musicplayer.data.YoutubeDownloader
 import com.example.musicplayer.ui.components.DownloadOptionsBottomSheet
 import com.example.musicplayer.viewmodel.MusicViewModel
-import kotlinx.coroutines.delay
 import java.io.ByteArrayInputStream
 
 private const val TAG = "YoutubeWebScreen"
@@ -82,20 +83,14 @@ fun YoutubeWebScreen(
     var availableDownloadOptions by remember { mutableStateOf<List<DownloadOption>>(emptyList()) }
     var customView by remember { mutableStateOf<View?>(null) }
 
-    // Periodically poll WebView URL to catch YouTube SPA AJAX navigation
-    LaunchedEffect(webViewInstance) {
-        while (true) {
-            val liveUrl = webViewInstance?.url
-            if (liveUrl != null && liveUrl != currentUrl) {
-                currentUrl = liveUrl
-                canGoBack = webViewInstance?.canGoBack() == true
-            }
-            delay(300)
-        }
-    }
-
     val currentVideoId = remember(currentUrl) {
         extractVideoId(currentUrl)
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            (context as? Activity)?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        }
     }
 
     Box(
@@ -103,7 +98,7 @@ fun YoutubeWebScreen(
             .fillMaxSize()
             .background(Color.Black)
     ) {
-        // 100% Fullscreen Web View Container
+        // 100% Fullscreen Web View Container (Hardware Accelerated 60/120 FPS)
         AndroidView(
             factory = { ctx ->
                 WebView(ctx).apply {
@@ -112,6 +107,8 @@ fun YoutubeWebScreen(
                         ViewGroup.LayoutParams.MATCH_PARENT
                     )
                     
+                    setLayerType(View.LAYER_TYPE_HARDWARE, null)
+
                     @SuppressLint("SetJavaScriptEnabled")
                     settings.apply {
                         javaScriptEnabled = true
@@ -135,6 +132,14 @@ fun YoutubeWebScreen(
                                 return WebResourceResponse("text/plain", "UTF-8", ByteArrayInputStream(ByteArray(0)))
                             }
                             return super.shouldInterceptRequest(view, request)
+                        }
+
+                        override fun doUpdateVisitedHistory(view: WebView?, url: String?, isReload: Boolean) {
+                            super.doUpdateVisitedHistory(view, url, isReload)
+                            if (url != null && url != currentUrl) {
+                                currentUrl = url
+                                canGoBack = view?.canGoBack() == true
+                            }
                         }
 
                         override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
@@ -184,11 +189,15 @@ fun YoutubeWebScreen(
                         override fun onShowCustomView(view: View?, callback: CustomViewCallback?) {
                             super.onShowCustomView(view, callback)
                             customView = view
+                            // Automatically switch to Landscape Mode when watching fullscreen video!
+                            (context as? Activity)?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
                         }
 
                         override fun onHideCustomView() {
                             super.onHideCustomView()
                             customView = null
+                            // Restore normal orientation when exiting video fullscreen
+                            (context as? Activity)?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
                         }
                     }
 
