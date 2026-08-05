@@ -112,8 +112,9 @@ class DownloaderHandler(http.server.BaseHTTPRequestHandler):
     def resolve_video_stream(self, video_id):
         video_url = f"https://www.youtube.com/watch?v={video_id}"
         client_options = [
+            ["--extractor-args", "youtube:player_client=tv_embedded"],
             ["--extractor-args", "youtube:player_client=android,mweb"],
-            ["--extractor-args", "youtube:player_client=tv_embedded,web_creator"],
+            ["--extractor-args", "youtube:player_client=web_creator"],
             []
         ]
         
