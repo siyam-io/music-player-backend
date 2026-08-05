@@ -114,32 +114,29 @@ class DownloaderHandler(http.server.BaseHTTPRequestHandler):
         client_options = [
             ["--extractor-args", "youtube:player_client=android,mweb"],
             ["--extractor-args", "youtube:player_client=tv_embedded,web_creator"],
-            ["--extractor-args", "youtube:player_client=ios,mweb"],
             []
         ]
         
         for client_args in client_options:
-            for fmt in ["bestaudio[ext=m4a]/bestaudio/best", "bestaudio", "best"]:
-                try:
-                    cmd = [
-                        sys.executable, "-m", "yt_dlp",
-                        "-g",
-                        "-f", fmt,
-                        "--no-check-certificates",
-                        "--no-warnings",
-                        "--extractor-retries", "3"
-                    ] + client_args + [video_url]
-                    
-                    result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-                    if result.returncode == 0:
-                        stream_url = result.stdout.strip()
-                        if '\n' in stream_url:
-                            stream_url = stream_url.split('\n')[-1].strip()
-                        if stream_url and stream_url.startswith("http"):
-                            print(f"[Server] Successfully resolved stream URL!", flush=True)
-                            return stream_url
-                except Exception as e:
-                    print(f"[Server] Resolve error: {e}", flush=True)
+            try:
+                cmd = [
+                    sys.executable, "-m", "yt_dlp",
+                    "-g",
+                    "-f", "bestaudio/best",
+                    "--no-check-certificates",
+                    "--no-warnings"
+                ] + client_args + [video_url]
+                
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=12)
+                if result.returncode == 0 and result.stdout.strip():
+                    stream_url = result.stdout.strip()
+                    if '\n' in stream_url:
+                        stream_url = stream_url.split('\n')[-1].strip()
+                    if stream_url and stream_url.startswith("http"):
+                        print(f"[Server] Successfully resolved stream URL!", flush=True)
+                        return stream_url
+            except Exception as e:
+                print(f"[Server] Resolve attempt error: {e}", flush=True)
         return None
 
     def search_youtube(self, query_str):
