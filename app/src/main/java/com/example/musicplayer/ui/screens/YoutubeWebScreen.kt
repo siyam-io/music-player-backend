@@ -117,8 +117,8 @@ fun YoutubeWebScreen(
                         useWideViewPort = true
                         loadWithOverviewMode = true
                         mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
-                        // Desktop/Mobile Safari User-Agent to allow Google Sign-In seamlessly
-                        userAgentString = "Mozilla/5.0 (Linux; Android 12; Pixel 6 Build/SQ3A.220705.004; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/120.0.6099.210 Mobile Safari/537.36"
+                        // Clean Chrome Mobile User-Agent to bypass YouTube bot detection and allow seamless Google Sign-In
+                        userAgentString = "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
                     }
 
                     val cookieManager = CookieManager.getInstance()
