@@ -251,8 +251,8 @@ object YoutubeDownloader {
         return try {
             val conn = URL(serverUrl).openConnection() as HttpURLConnection
             conn.requestMethod = "GET"
-            conn.connectTimeout = 30000
-            conn.readTimeout = 30000
+            conn.connectTimeout = 15000
+            conn.readTimeout = 20000
             conn.setRequestProperty("Connection", "close")
 
             val responseCode = conn.responseCode
@@ -264,15 +264,16 @@ object YoutubeDownloader {
                 reader.close()
 
                 val responseJson = JSONObject(responseBody)
-                if (responseJson.has("url")) {
-                    var streamUrl = responseJson.getString("url")
-                    if (streamUrl.isNotBlank()) {
-                        if (streamUrl.startsWith("http://")) {
-                            streamUrl = streamUrl.replaceFirst("http://", "https://")
-                        }
-                        Log.d(TAG, "Server SUCCESS for videoId=$videoId")
-                        return streamUrl
+                var streamUrl = responseJson.optString("url", "")
+                if (streamUrl.isBlank()) {
+                    streamUrl = responseJson.optString("direct_url", "")
+                }
+                if (streamUrl.isNotBlank()) {
+                    if (streamUrl.startsWith("http://")) {
+                        streamUrl = streamUrl.replaceFirst("http://", "https://")
                     }
+                    Log.d(TAG, "Server SUCCESS for videoId=$videoId, url=$streamUrl")
+                    return streamUrl
                 }
                 Log.w(TAG, "Server returned 200 but no valid URL")
                 null
@@ -398,6 +399,8 @@ object YoutubeDownloader {
                     setTitle(video.title)
                     setDescription("Downloading audio from YouTube")
                     setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                    setAllowedOverMetered(true)
+                    setAllowedOverRoaming(true)
                     
                     val cleanTitle = video.title.replace(Regex("[\\\\/:*?\"<>|]"), "_")
                     val cleanArtist = video.artist.replace(Regex("[\\\\/:*?\"<>|]"), "_")
