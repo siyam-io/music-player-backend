@@ -49,6 +49,7 @@ object ParallelDownloader {
         urlStr: String,
         title: String,
         extension: String,
+        folderName: String = "Internal Download",
         onProgress: (Int, String) -> Unit = { _, _ -> },
         onComplete: (Boolean, File?) -> Unit
     ) = withContext(Dispatchers.IO) {
@@ -58,13 +59,14 @@ object ParallelDownloader {
         val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
 
         val cleanTitle = title.replace(Regex("[\\\\/:*?\"<>|]"), "_").trim()
+        val cleanFolder = folderName.replace(Regex("[\\\\/:*?\"<>|]"), "_").ifBlank { "Internal Download" }.trim()
         val fileName = "$cleanTitle.$extension"
         val baseDir = if (extension == "mp4") {
             Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES)
         } else {
             Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC)
         }
-        val targetDir = File(baseDir, "Internal Download")
+        val targetDir = File(baseDir, cleanFolder)
         if (!targetDir.exists()) {
             targetDir.mkdirs()
         }
@@ -72,7 +74,7 @@ object ParallelDownloader {
 
         val builder = NotificationCompat.Builder(context, CHANNEL_ID)
             .setContentTitle("⚡ Downloading: $cleanTitle")
-            .setContentText("Connecting to 8 parallel streams...")
+            .setContentText("Saving to $cleanFolder...")
             .setSmallIcon(android.R.drawable.stat_sys_download)
             .setOngoing(true)
             .setProgress(100, 0, false)
@@ -157,7 +159,7 @@ object ParallelDownloader {
                     setAllowedOverRoaming(true)
                     setDestinationInExternalPublicDir(
                         if (extension == "mp4") Environment.DIRECTORY_MOVIES else Environment.DIRECTORY_MUSIC,
-                        "Internal Download/$fileName"
+                        "$cleanFolder/$fileName"
                     )
                 }
                 val dm = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager

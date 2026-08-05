@@ -6,9 +6,12 @@ import android.content.Context
 import android.content.pm.ActivityInfo
 import android.graphics.Bitmap
 import android.net.Uri
+import android.os.Build
 import android.util.Log
 import android.view.View
 import android.view.ViewGroup
+import android.view.WindowInsets
+import android.view.WindowInsetsController
 import android.webkit.CookieManager
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
@@ -42,8 +45,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import com.example.musicplayer.data.DownloadOption
 import com.example.musicplayer.data.YoutubeDownloader
 import com.example.musicplayer.ui.components.DownloadOptionsBottomSheet
@@ -112,26 +113,71 @@ fun YoutubeWebScreen(
                         webChromeClient = object : WebChromeClient() {
                             override fun onShowCustomView(view: View?, callback: CustomViewCallback?) {
                                 super.onShowCustomView(view, callback)
+                                val activity = context as? Activity ?: return
+                                val decorView = activity.window.decorView as? ViewGroup ?: return
+
                                 customViewCallback = callback
                                 customView = view
-                                (context as? Activity)?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+
+                                (view?.parent as? ViewGroup)?.removeView(view)
+                                decorView.addView(
+                                    view,
+                                    ViewGroup.LayoutParams(
+                                        ViewGroup.LayoutParams.MATCH_PARENT,
+                                        ViewGroup.LayoutParams.MATCH_PARENT
+                                    )
+                                )
+
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                                    activity.window.insetsController?.hide(WindowInsets.Type.statusBars() or WindowInsets.Type.navigationBars())
+                                    activity.window.insetsController?.systemBarsBehavior = WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                                } else {
+                                    @Suppress("DEPRECATION")
+                                    activity.window.decorView.systemUiVisibility = (View.SYSTEM_UI_FLAG_FULLSCREEN
+                                            or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                                            or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY)
+                                }
+                                activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
                             }
 
                             override fun onHideCustomView() {
                                 super.onHideCustomView()
-                                customViewCallback?.onCustomViewHidden()
-                                customViewCallback = null
-                                customView = null
-                                (context as? Activity)?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                                val activity = context as? Activity
+                                val decorView = activity?.window?.decorView as? ViewGroup
+
+                                if (customView != null) {
+                                    decorView?.removeView(customView)
+                                    customViewCallback?.onCustomViewHidden()
+                                    customViewCallback = null
+                                    customView = null
+                                }
+
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                                    activity?.window?.insetsController?.show(WindowInsets.Type.statusBars() or WindowInsets.Type.navigationBars())
+                                } else {
+                                    @Suppress("DEPRECATION")
+                                    activity?.window?.decorView?.systemUiVisibility = View.SYSTEM_UI_FLAG_VISIBLE
+                                }
+                                activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
                             }
                         }
 
                         webViewClient = object : WebViewClient() {
+                            override fun doUpdateVisitedHistory(view: WebView?, url: String?, isReload: Boolean) {
+                                super.doUpdateVisitedHistory(view, url, isReload)
+                                val actualUrl = url ?: view?.url
+                                if (actualUrl != null) {
+                                    currentUrl = actualUrl
+                                    canGoBack = view?.canGoBack() == true
+                                }
+                            }
+
                             override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                                 super.onPageStarted(view, url, favicon)
                                 isLoading = true
-                                if (url != null) {
-                                    currentUrl = url
+                                val actualUrl = url ?: view?.url
+                                if (actualUrl != null) {
+                                    currentUrl = actualUrl
                                     canGoBack = view?.canGoBack() == true
                                 }
                             }
@@ -139,8 +185,9 @@ fun YoutubeWebScreen(
                             override fun onPageFinished(view: WebView?, url: String?) {
                                 super.onPageFinished(view, url)
                                 isLoading = false
-                                if (url != null) {
-                                    currentUrl = url
+                                val actualUrl = url ?: view?.url
+                                if (actualUrl != null) {
+                                    currentUrl = actualUrl
                                     canGoBack = view?.canGoBack() == true
                                 }
                             }
@@ -212,89 +259,62 @@ fun YoutubeWebScreen(
             }
         }
 
-        // VidMate-Style Fast Download Button (Shown ONLY when inside a video/details page!)
-        if (currentVideoId != null) {
-            Box(
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(end = 16.dp, bottom = 24.dp)
-            ) {
-                ExtendedFloatingActionButton(
-                    onClick = {
-                        if (!isFetchingDownloadOptions) {
-                            isFetchingDownloadOptions = true
-                            showDownloadSheet = true
-                            availableDownloadOptions = emptyList()
-                            resolvedVideoTitle = "Fetching song title..."
-                            coroutineScope.launch(Dispatchers.IO) {
-                                val title = YoutubeDownloader.fetchVideoTitle(currentVideoId)
-                                withContext(Dispatchers.Main) {
-                                    resolvedVideoTitle = title
-                                }
-                            }
-                            YoutubeDownloader.resolveAllDownloadOptions(currentVideoId) { options ->
-                                isFetchingDownloadOptions = false
-                                availableDownloadOptions = options
+        // VidMate-Style Fast Download Button (ALWAYS Available!)
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(end = 16.dp, bottom = 24.dp)
+        ) {
+            ExtendedFloatingActionButton(
+                onClick = {
+                    val activeUrl = webViewInstance?.url ?: currentUrl
+                    val activeVideoId = extractVideoId(activeUrl) ?: currentVideoId
+                    if (activeVideoId == null) {
+                        Toast.makeText(context, "Please open a YouTube video to download 🎵", Toast.LENGTH_SHORT).show()
+                    } else if (!isFetchingDownloadOptions) {
+                        isFetchingDownloadOptions = true
+                        showDownloadSheet = true
+                        availableDownloadOptions = emptyList()
+                        resolvedVideoTitle = "Fetching song title..."
+                        coroutineScope.launch(Dispatchers.IO) {
+                            val title = YoutubeDownloader.fetchVideoTitle(activeVideoId)
+                            withContext(Dispatchers.Main) {
+                                resolvedVideoTitle = title
                             }
                         }
-                    },
-                    icon = {
-                        if (isFetchingDownloadOptions) {
-                            CircularProgressIndicator(modifier = Modifier.size(22.dp), color = Color.Black, strokeWidth = 2.dp)
-                        } else {
-                            Icon(Icons.Default.Download, contentDescription = "Download Options (VidMate)")
+                        YoutubeDownloader.resolveAllDownloadOptions(activeVideoId) { options ->
+                            isFetchingDownloadOptions = false
+                            availableDownloadOptions = options
                         }
-                    },
-                    text = { Text("⚡ Download", fontWeight = FontWeight.Bold) },
-                    containerColor = Color(0xFF1DB954),
-                    contentColor = Color.Black,
-                    shape = RoundedCornerShape(26.dp)
-                )
-            }
-        }
-
-        // Fullscreen Video View Overlay
-        if (customView != null) {
-            Dialog(
-                onDismissRequest = {
-                    customViewCallback?.onCustomViewHidden()
-                    customViewCallback = null
-                    customView = null
-                    (context as? Activity)?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                    }
                 },
-                properties = DialogProperties(
-                    usePlatformDefaultWidth = false,
-                    decorFitsSystemWindows = false
-                )
-            ) {
-                AndroidView(
-                    factory = { ctx ->
-                        FrameLayout(ctx).apply {
-                            setBackgroundColor(android.graphics.Color.BLACK)
-                            (customView?.parent as? ViewGroup)?.removeView(customView)
-                            addView(
-                                customView,
-                                ViewGroup.LayoutParams(
-                                    ViewGroup.LayoutParams.MATCH_PARENT,
-                                    ViewGroup.LayoutParams.MATCH_PARENT
-                                )
-                            )
-                        }
-                    },
-                    modifier = Modifier.fillMaxSize()
-                )
-            }
+                icon = {
+                    if (isFetchingDownloadOptions) {
+                        CircularProgressIndicator(modifier = Modifier.size(22.dp), color = Color.Black, strokeWidth = 2.dp)
+                    } else {
+                        Icon(Icons.Default.Download, contentDescription = "Download Options (VidMate)")
+                    }
+                },
+                text = { Text("⚡ Download", fontWeight = FontWeight.Bold) },
+                containerColor = Color(0xFF1DB954),
+                contentColor = Color.Black,
+                shape = RoundedCornerShape(26.dp)
+            )
         }
 
         // Download Options Bottom Sheet (Audio & Video Formats)
-        if (showDownloadSheet && currentVideoId != null) {
-            DownloadOptionsBottomSheet(
-                videoTitle = resolvedVideoTitle,
-                options = availableDownloadOptions,
-                isLoading = isFetchingDownloadOptions,
-                onDismiss = { showDownloadSheet = false },
-                coroutineScope = coroutineScope
-            )
+        if (showDownloadSheet) {
+            val activeUrl = webViewInstance?.url ?: currentUrl
+            val activeVideoId = extractVideoId(activeUrl) ?: currentVideoId
+            if (activeVideoId != null) {
+                DownloadOptionsBottomSheet(
+                    videoTitle = resolvedVideoTitle,
+                    options = availableDownloadOptions,
+                    isLoading = isFetchingDownloadOptions,
+                    onDismiss = { showDownloadSheet = false },
+                    coroutineScope = coroutineScope
+                )
+            }
         }
     }
 }

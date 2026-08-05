@@ -51,8 +51,9 @@ object SongScanner {
                     val duration = cursor.getLong(durationColumn)
                     val path = cursor.getString(dataColumn) ?: ""
                     
-                    if (path.contains("Internal Download", ignoreCase = true)) {
-                        album = "Internal Download"
+                    val file = File(path)
+                    if (file.exists() && file.parentFile != null && file.parentFile?.name != "Music" && file.parentFile?.name != "Movies") {
+                        album = file.parentFile?.name ?: album
                     }
 
                     val contentUri = ContentUris.withAppendedId(
@@ -83,28 +84,34 @@ object SongScanner {
             e.printStackTrace()
         }
 
-        // Direct Filesystem Scanner for "Internal Download" Folder
+        // Direct Filesystem Recursive Scanner for Music & Movies Subfolders
         try {
-            val musicDir = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC), "Internal Download")
-            val movieDir = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES), "Internal Download")
-            val dirsToScan = listOf(musicDir, movieDir)
+            val musicRoot = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC)
+            val moviesRoot = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES)
+            val rootsToScan = listOf(musicRoot, moviesRoot)
 
-            for (dir in dirsToScan) {
-                if (dir.exists() && dir.isDirectory) {
-                    val files = dir.listFiles { file ->
+            for (root in rootsToScan) {
+                if (root.exists() && root.isDirectory) {
+                    val allFiles = root.walkTopDown().filter { file ->
                         file.isFile && (file.extension.lowercase() in listOf("mp3", "m4a", "wav", "mp4", "aac"))
-                    } ?: emptyArray()
+                    }
 
-                    for (file in files) {
+                    for (file in allFiles) {
                         if (songList.none { it.path == file.absolutePath }) {
                             val songId = file.absolutePath.hashCode().toLong()
                             val cleanTitle = file.nameWithoutExtension
+                            val folderAlbumName = if (file.parentFile != null && file.parentFile?.name != "Music" && file.parentFile?.name != "Movies") {
+                                file.parentFile?.name ?: "Internal Download"
+                            } else {
+                                "Internal Download"
+                            }
+
                             songList.add(
                                 Song(
                                     id = songId,
                                     title = cleanTitle,
-                                    artist = "Internal Download",
-                                    album = "Internal Download",
+                                    artist = folderAlbumName,
+                                    album = folderAlbumName,
                                     uri = Uri.fromFile(file),
                                     path = file.absolutePath,
                                     duration = 0L,
